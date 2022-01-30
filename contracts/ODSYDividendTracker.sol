@@ -12,60 +12,24 @@ contract ODSYDividendTracker is DividendPayingToken {
   IterableMapping.Map private tokenHoldersMap;
   uint256 public lastProcessedIndex;
 
-  mapping (address => bool) public excludedFromDividends;
+  mapping (address => bool) public excludedAccounts;
   mapping (address => uint256) public lastClaimTimes;
 
-  uint256 public claimWait = 3600;
-  uint256 public minimumTokenBalanceForDividends = 300_000_000 ether; //must hold 300,000,000+ tokens
+  uint256 public claimWait = 6 hours;
+  uint256 public minimumBalance = 10_000_000; // must hold 10,000,000+ tokens
+  uint256 public minimumBalanceExtended; // EXTENDED TO 10e18
 
   event Claim(address indexed account, uint256 amount, bool indexed automatic);
-  event ExcludeFromDividends(address indexed account);
-  event IncludeInDividends(address indexed account);
+  event ExcludedFromDividends(address indexed account, bool isExcluded);
   event SetClaimWait(uint256 indexed previousValue, uint256 indexed newValue);
+  event MinimumBalanceChanged(uint256 indexed previousValue, uint256 indexed newValue);
 
-  constructor() DividendPayingToken() {
-    excludedFromDividends[address(this)] = true;
+  constructor() DividendPayingToken("OdysseyRewards", "ODSYRV1") {
+    excludedAccounts[address(this)] = true;
+    minimumBalanceExtended = minimumBalance * 1 ether;
   }
 
-  function excludeFromDividends(address account) external onlyOwner {
-    require(!excludedFromDividends[account], "ODSYDividendTracker: Value already set");
-    excludedFromDividends[account] = true;
-    changeBalance(account, 0);
-    tokenHoldersMap.remove(account);
-    emit ExcludeFromDividends(account);
-  }
-
-  function includeInDividends(address account) external onlyOwner {
-    require(excludedFromDividends[account], "ODSYDividendTracker: Value already set");
-    excludedFromDividends[account] = false;
-    emit IncludeInDividends(account);
-  }
-
-  function setClaimWait(uint256 secondsBetweenClaims) external onlyOwner {
-    require(secondsBetweenClaims >= 3600 && secondsBetweenClaims <= 86400, "ODSYDividendTracker: claimWait must be between 1 and 24 hours");
-    require(secondsBetweenClaims != claimWait, "ODSYDividendTracker: Value already set");
-    emit SetClaimWait(claimWait, secondsBetweenClaims);
-    claimWait = secondsBetweenClaims;
-  }
-
-  function withdrawDividend() pure public override {
-    require(false, "ODSYDividendTracker: withdrawDividend disabled. Use the 'claim' function on the main ODSY contract.");
-  }
-
-  function updateMinimumTokenBalanceForDividends(uint256 _newMinimumBalance) external onlyOwner {
-    require(_newMinimumBalance != minimumTokenBalanceForDividends, "ODSYDividendTracker: New mimimum balance for dividend cannot be same as current minimum balance");
-    minimumTokenBalanceForDividends = _newMinimumBalance * (10**18);
-  }
-
-  function getLastProcessedIndex() external view returns(uint256) {
-    return lastProcessedIndex;
-  }
-
-  function getNumberOfTokenHolders() external view returns(uint256) {
-    return tokenHoldersMap.keys.length;
-  }
-
-  function getAccount(address _account) public view returns (address account, int256 index, int256 iterationsUntilProcessed, uint256 withdrawableDividends, uint256 totalDividends, uint256 lastClaimTime, uint256 nextClaimTime, uint256 secondsUntilAutoClaimAvailable) {
+  function getAccountInfo(address _account) public view returns (address account, int256 index, int256 iterationsUntilProcessed, uint256 withdrawableDividends, uint256 totalDividends, uint256 lastClaimTime, uint256 nextClaimTime, uint256 secondsUntilAutoClaimAvailable) {
     account = _account;
     index = tokenHoldersMap.getIndexOfKey(account);
     iterationsUntilProcessed = -1;
@@ -78,40 +42,36 @@ contract ODSYDividendTracker is DividendPayingToken {
       }
     }
 
-    withdrawableDividends = withdrawableDividendOf(account);
-    totalDividends = accumulativeDividendOf(account);
+    withdrawableDividends = this.getWithdrawable(account);
+    totalDividends = getAccumulated(account);
     lastClaimTime = lastClaimTimes[account];
     nextClaimTime = (lastClaimTime > 0) ? lastClaimTime.add(claimWait) : 0;
     secondsUntilAutoClaimAvailable = (nextClaimTime > block.timestamp) ? nextClaimTime.sub(block.timestamp) : 0;
   }
 
-  function getAccountAtIndex(uint256 index) public view returns (address, int256, int256, uint256, uint256, uint256, uint256, uint256) {
-    if (index >= tokenHoldersMap.size()) {
-      return (0x0000000000000000000000000000000000000000, -1, -1, 0, 0, 0, 0, 0);
-    }
+  function getAccountInfoAtIndex(uint256 index) public view returns (address, int256, int256, uint256, uint256, uint256, uint256, uint256) {
+    if (index >= tokenHoldersMap.size()) return (0x0000000000000000000000000000000000000000, -1, -1, 0, 0, 0, 0, 0);
+
     address account = tokenHoldersMap.getKeyAtIndex(index);
-    return getAccount(account);
+    return getAccountInfo(account);
   }
 
-  function canAutoClaim(uint256 lastClaimTime) private view returns (bool) {
-    if (lastClaimTime > block.timestamp) return false;
-    return block.timestamp.sub(lastClaimTime) >= claimWait;
+  // function getLastProcessedIndex() external view returns(uint256) {
+  //   return lastProcessedIndex;
+  // }
+
+  function getHolderCount() external view returns(uint256) {
+    return tokenHoldersMap.keys.length;
   }
 
-  function setBalance(address payable account, uint256 newBalance) external onlyOwner {
-    if (excludedFromDividends[account]) return;
+  function setExcludedAccount(address account, bool exclude) external onlyOwner {
+    require(excludedAccounts[account] != exclude, "ODSYDividendTracker: Value already set");
 
-    if (newBalance >= minimumTokenBalanceForDividends) {
-      changeBalance(account, newBalance);
-      tokenHoldersMap.set(account, newBalance);
-    } else {
-      changeBalance(account, 0);
-      tokenHoldersMap.remove(account);
-    }
-    processAccount(account, true);
+    excludedAccounts[account] = exclude;
+    emit ExcludedFromDividends(account, exclude);
   }
 
-  function process(uint256 gas) public returns (uint256, uint256, uint256) {
+  function processClaims(uint256 gas) public returns (uint256, uint256, uint256) {
     uint256 numberOfTokenHolders = tokenHoldersMap.keys.length;
     if (numberOfTokenHolders == 0) return (0, 0, lastProcessedIndex);
 
@@ -128,7 +88,7 @@ contract ODSYDividendTracker is DividendPayingToken {
       address account = tokenHoldersMap.keys[_lastProcessedIndex];
 
       if (canAutoClaim(lastClaimTimes[account])) {
-        if (processAccount(payable(account), true)) claims++;
+        if (processClaim(payable(account), true)) claims++;
       }
       iterations++;
       uint256 newGasLeft = gasleft();
@@ -141,8 +101,8 @@ contract ODSYDividendTracker is DividendPayingToken {
     return (iterations, claims, lastProcessedIndex);
   }
 
-  function processAccount(address payable account, bool automatic) public onlyOwner returns (bool) {
-    uint256 amount = withdrawDividendOfUser(account);
+  function processClaim(address payable account, bool automatic) public onlyOwner returns (bool) {
+    uint256 amount = processWithdraw(account);
 
     if (amount > 0) {
       lastClaimTimes[account] = block.timestamp;
@@ -151,5 +111,42 @@ contract ODSYDividendTracker is DividendPayingToken {
     }
 
     return false;
+  }
+
+  function setBalance(address payable account, uint256 newBalance) external onlyOwner {
+    if (excludedAccounts[account]) return;
+    if (newBalance >= minimumBalanceExtended) { // * 10e18
+      changeBalance(account, newBalance);
+      tokenHoldersMap.set(account, newBalance);
+    } else {
+      changeBalance(account, 0);
+      tokenHoldersMap.remove(account);
+    }
+    processClaim(account, true);
+  }
+
+  function setClaimWait(uint256 secondsBetweenClaims) external onlyOwner {
+    require(secondsBetweenClaims != claimWait, "ODSYDividendTracker: Value already set");
+    require(secondsBetweenClaims >= 1 hours && secondsBetweenClaims <= 1 days, "ODSYDividendTracker: claimWait must be between 1 and 24 hours");
+    emit SetClaimWait(claimWait, secondsBetweenClaims);
+    claimWait = secondsBetweenClaims;
+  }
+
+  function setMinimumBalance(uint256 newBalance) external onlyOwner {
+    require(newBalance != minimumBalance, "ODSYDividendTracker: Value already set");
+    emit MinimumBalanceChanged(minimumBalance, newBalance);
+    minimumBalance = newBalance;
+    minimumBalanceExtended = minimumBalance * 1 ether; // EXTENDED TO 10e18 // * 10e18
+  }
+
+  function withdrawRewards() pure public override {
+    require(false, "ODSYDividendTracker: Withdrawls must use the `claim` function on the main ODSY contract.");
+  }
+
+  // PRIVATE
+
+  function canAutoClaim(uint256 lastClaimTime) private view returns (bool) {
+    if (lastClaimTime > block.timestamp) return false;
+    return block.timestamp.sub(lastClaimTime) >= claimWait;
   }
 }

@@ -16,20 +16,20 @@ contract Odyssey is ERC20, Ownable {
   ODSYDividendTracker public odsyDividendTracker;
   address public odsyDividendToken;
 
-  address constant busd = 0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56;
-  address constant dead = 0x000000000000000000000000000000000000dEaD;
-  address constant routerPCSv2 = 0x10ED43C718714eb63d5aA57B78B54704E256024E;
-  address constant routerUSv2 = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
-  uint256 constant finalSupply =  50_000_000_000 ether; // 50B FINAL SUPPLY / NO MINTING
-  uint256 constant beginTradingAt = 1650168060; // Apr 17, 2022, 12:01:00 AM EST
+  address constant BUSD = 0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56;
+  address constant DEAD = 0x000000000000000000000000000000000000dEaD;
+  address constant ROUTER_PCSV2_MAINNET = 0x10ED43C718714eb63d5aA57B78B54704E256024E;
+  // address constant ROUTER_PCSV2_TESTNET = 0xD99D1c33F9fC3444f8101754aBC46c52416550D1);
+  uint256 constant FINAL_SUPPLY =  50_000_000_000 ether; // 50B FINAL SUPPLY / NO MINTING
+  uint256 constant BEGIN_TRADING_AT = 1650168060; // Apr 17, 2022, 12:01:00 AM EST
 
   address public projectWallet;
   address public liquidityWallet;
   uint256 public accumulatedRewards = 0;
   uint256 public accumulatedProject = 0;
   uint256 public accumulatedLiquidity = 0;
-  uint256 public maxWalletAmount = finalSupply / 100; // MAX 1% PER WALLET
-  uint256 public maxSellAmount =  finalSupply / 1000; // MAX 0.1% SELL
+  uint256 public maxWalletAmount = FINAL_SUPPLY / 100; // MAX 1% PER WALLET
+  uint256 public maxSellAmount =  FINAL_SUPPLY / 1000; // MAX 0.1% SELL
   uint256 public swapThreshold = maxSellAmount; // CONTRACT WILL DISTRIBUTE ACCUMULATED FUND AT THIS THRESHOLD
   uint256 public lastMarketCap = 1000;
   uint256 public feeToBuy = 2;
@@ -41,7 +41,7 @@ contract Odyssey is ERC20, Ownable {
 
   // MAPPINGS
   mapping (address => bool) public autoMarketMakers; // Any transfer to these addresses are likely sells
-  mapping (address => bool) private _isExcludedFromFees; // exclude from all fees and maxes
+  mapping (address => bool) private excludedFromFees; // exclude from all fees and maxes
   mapping (address => bool) private presaleWallets; // can trade in PreSale
 
   // EVENTS
@@ -49,11 +49,11 @@ contract Odyssey is ERC20, Ownable {
   event FeesChanged(uint256 marketCap, uint256 feeToBuy, uint256 feeToSell, uint256 feeRewards, uint256 feeProject, uint256 feeLiquidity);
   event LiquidityAdded(uint256 tokens, uint256 value);
   event LiquidityWalletChanged(address indexed previousValue, address indexed newValue);
-  event ProcessedDividendTracker(uint256 iterations, uint256 claims, uint256 lastIndex, bool indexed automatic, uint256 gas, address indexed processor);
+  event ProcessedDividends(uint256 iterations, uint256 claims, uint256 lastIndex, bool indexed automatic, uint256 gas, address indexed processor);
   event ProjectWalletChanged(address indexed previousValue, address indexed newValue);
-  event ReceivedETH(address indexed from, uint amount);
-  event SentETHToDividendTracker(uint256 amount);
-  event SentETHToProject(uint256 amount);
+  event ReceivedFunds(address indexed from, uint amount);
+  event SentFundsToDividendTracker(uint256 amount);
+  event SentFundsToProject(uint256 amount);
   event SetAutomatedMarketMakerPair(address indexed pair, bool indexed active);
   event SetDividendTracker(address indexed previousValue, address indexed newValue);
   event SetGasForProcessing(uint256 indexed previousValue, uint256 indexed newValue);
@@ -63,9 +63,9 @@ contract Odyssey is ERC20, Ownable {
 
   // INITIALIZE CONTRACT
   constructor() ERC20("Odyssey", "$ODSY") {
-    odsyDividendTracker = new ODSYDividendTracker(); // DEFAULTS TO BUSD IN CONSTRUCTOR
+    odsyDividendTracker = new ODSYDividendTracker();
 
-    IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(routerUSv2); // IMMUTABLES UNREADABLE IN CONSTRUCTOR SO USE TMP VAR
+    IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(ROUTER_PCSV2_MAINNET); // IMMUTABLES UNREADABLE IN CONSTRUCTOR SO USE TMP VAR
     address _uniswapV2Pair = IUniswapV2Factory(_uniswapV2Router.factory()).createPair(address(this), _uniswapV2Router.WETH()); // Create a uniswap pair for this new token
     uniswapV2Router = _uniswapV2Router;
     uniswapV2Pair = _uniswapV2Pair;
@@ -74,38 +74,34 @@ contract Odyssey is ERC20, Ownable {
     liquidityWallet = address(owner());
     projectWallet = 0xfB0f7207B2e682c8a7A6bdb2b2012a395a653584;
 
-    _isExcludedFromFees[owner()] = true;
-    _isExcludedFromFees[address(this)] = true;
-    _isExcludedFromFees[projectWallet] = true;
+    excludedFromFees[owner()] = true;
+    excludedFromFees[address(this)] = true;
+    excludedFromFees[projectWallet] = true;
 
-    odsyDividendTracker.excludeFromDividends(owner());
-    odsyDividendTracker.excludeFromDividends(address(this));
-    odsyDividendTracker.excludeFromDividends(address(_uniswapV2Router));
-    odsyDividendTracker.excludeFromDividends(projectWallet);
-    odsyDividendTracker.excludeFromDividends(dead);
+    odsyDividendTracker.setExcludedAccount(owner(), true);
+    odsyDividendTracker.setExcludedAccount(address(this), true);
+    odsyDividendTracker.setExcludedAccount(address(_uniswapV2Router), true);
+    odsyDividendTracker.setExcludedAccount(projectWallet, true);
+    odsyDividendTracker.setExcludedAccount(DEAD, true);
 
     changeFees(2, 6, 2, 4);
 
-    _mint(address(owner()), finalSupply);
+    _mint(address(owner()), FINAL_SUPPLY);
   }
 
   receive() external payable onlyOwner {
-    emit ReceivedETH(msg.sender, msg.value);
+    emit ReceivedFunds(msg.sender, msg.value);
   }
 
-  function contractAddress() public view returns(address) {
-    return address(this);
-  }
+  function excludeFromFees(address account, bool exclude) external onlyOwner {
+    require(excludedFromFees[account] != exclude, "ODSY: Value already set");
 
-  function excludeFromFees(address account, bool excluded) external onlyOwner {
-    require(_isExcludedFromFees[account] != excluded, "ODSY: Value already set");
-
-    _isExcludedFromFees[account] = excluded;
-    emit ExcludedFromFees(account, excluded);
+    excludedFromFees[account] = exclude;
+    emit ExcludedFromFees(account, exclude);
   }
 
   function isExcludedFromFees(address account) external view returns(bool) {
-    return _isExcludedFromFees[account];
+    return excludedFromFees[account];
   }
 
   function setAutomatedMarketMakerPair(address pair, bool value) external onlyOwner {
@@ -115,10 +111,10 @@ contract Odyssey is ERC20, Ownable {
     emit SetAutomatedMarketMakerPair(pair, value);
   }
 
-  function setDividendToken(address newToken) external onlyOwner {
-    odsyDividendToken = newToken;
-    odsyDividendTracker.setDividendToken(newToken);
-  }
+  // function setDividendToken(address newToken) external onlyOwner {
+  //   odsyDividendToken = newToken;
+  //   odsyDividendTracker.setDividendToken(newToken);
+  // }
 
   function setDividendTracker(address newTracker) public onlyOwner {
     address oldTracker = address(odsyDividendTracker);
@@ -128,10 +124,11 @@ contract Odyssey is ERC20, Ownable {
 
     require(newDividendTracker.owner() == address(this), "ODSY: The new dividend tracker must be owned by the token.");
 
-    newDividendTracker.excludeFromDividends(address(this));
-    newDividendTracker.excludeFromDividends(address(uniswapV2Router));
-    newDividendTracker.excludeFromDividends(projectWallet);
-    newDividendTracker.excludeFromDividends(dead);
+    newDividendTracker.setExcludedAccount(address(this), true);
+    newDividendTracker.setExcludedAccount(address(uniswapV2Router), true);
+    newDividendTracker.setExcludedAccount(projectWallet, true);
+    newDividendTracker.setExcludedAccount(DEAD, true);
+    newDividendTracker.setOwnerTotalSupply(totalSupply());
 
     odsyDividendTracker = newDividendTracker;
     emit SetDividendTracker(oldTracker, newTracker);
@@ -149,8 +146,8 @@ contract Odyssey is ERC20, Ownable {
 
     address old_wallet = liquidityWallet;
     liquidityWallet = new_wallet;
-    if (old_wallet != address(this)) _isExcludedFromFees[old_wallet] = false;
-    _isExcludedFromFees[new_wallet] = true;
+    if (old_wallet != address(this)) excludedFromFees[old_wallet] = false;
+    excludedFromFees[new_wallet] = true;
     emit LiquidityWalletChanged(old_wallet, new_wallet);
   }
 
@@ -168,14 +165,14 @@ contract Odyssey is ERC20, Ownable {
     require(new_wallet != projectWallet, "ODSY: Value already set");
     address old_wallet = projectWallet;
     projectWallet = new_wallet;
-    _isExcludedFromFees[old_wallet] = false;
-    _isExcludedFromFees[new_wallet] = true;
+    excludedFromFees[old_wallet] = false;
+    excludedFromFees[new_wallet] = true;
     emit ProjectWalletChanged(old_wallet, new_wallet);
   }
 
   function isTradingEnabled() public view returns (bool) {
     return true; // TESTING
-    // return block.timestamp >= beginTradingAt;
+    // return block.timestamp >= BEGIN_TRADING_AT;
   }
 
   function isBuy(address from, address to) public view returns (bool) {
@@ -190,55 +187,72 @@ contract Odyssey is ERC20, Ownable {
     return (to != address(uniswapV2Router) && from != address(uniswapV2Router));
   }
 
-  // FUNCTIONS DELEGATED TO odsyDividendTracker
+  // FUNCTIONS DELEGATED TO DividendTracker
 
-  function accountDividendsInfo(address account) external view returns (address, int256, int256, uint256, uint256, uint256, uint256, uint256) {
-    return odsyDividendTracker.getAccount(account);
+  function getDividendsAccountInfo(address account) external view returns (address, int256, int256, uint256, uint256, uint256, uint256, uint256) {
+    return odsyDividendTracker.getAccountInfo(account);
   }
 
-  function accountDividendsInfoAtIndex(uint256 index) external view returns (address, int256, int256, uint256, uint256, uint256, uint256, uint256) {
-    return odsyDividendTracker.getAccountAtIndex(index);
+  function getDividendsAccountInfoAtIndex(uint256 index) external view returns (address, int256, int256, uint256, uint256, uint256, uint256, uint256) {
+    return odsyDividendTracker.getAccountInfoAtIndex(index);
   }
 
-  function claim() external {
-    odsyDividendTracker.processAccount(payable(msg.sender), false);
-  }
-
-  function claimWait() external view returns(uint256) {
-    return odsyDividendTracker.claimWait();
-  }
-
-  function dividendTokenBalanceOf(address account) public view returns (uint256) {
+  function getDividendsBalanceOf(address account) public view returns (uint256) {
     return odsyDividendTracker.balanceOf(account);
   }
 
-  function excludeFromDividends(address account) external onlyOwner{
-    odsyDividendTracker.excludeFromDividends(account);
+  function getDividendsClaimWait() external view returns(uint256) {
+    return odsyDividendTracker.claimWait();
   }
 
-  function lastProcessedIndex() external view returns(uint256) {
-    return odsyDividendTracker.getLastProcessedIndex();
+  function getDividendsLastProcessedIndex() external view returns(uint256) {
+    return odsyDividendTracker.lastProcessedIndex();
   }
 
-  function numberOfDividendTokenHolders() external view returns(uint256) {
-    return odsyDividendTracker.getNumberOfTokenHolders();
+  function getDividendsMinimumBalance() external view returns(uint256) {
+    return odsyDividendTracker.minimumBalance();
   }
 
-  function processDividendTracker(uint256 gas) external {
-    (uint256 iterations, uint256 claims, uint256 lastIndex) = odsyDividendTracker.process(gas);
-    emit ProcessedDividendTracker(iterations, claims, lastIndex, false, gas, tx.origin);
+  function getDividendsHolderCount() external view returns(uint256) {
+    return odsyDividendTracker.getHolderCount();
   }
 
-  function setClaimWait(uint256 waitSeconds) external onlyOwner {
+  function getDividendsTotalDistributed() external view returns (uint256) {
+    return odsyDividendTracker.totalDistributed();
+  }
+
+  function getDividendsWithdrawable(address account) public view returns(uint256) {
+    return odsyDividendTracker.getWithdrawable(account);
+  }
+
+  function isDividendsExcludedAccount(address account) external view returns(bool) {
+    return odsyDividendTracker.excludedAccounts(account);
+  }
+
+  function processDividendsClaim() external {
+    odsyDividendTracker.processClaim(payable(msg.sender), false);
+  }
+
+  function processDividendsClaims(uint256 gas) public {
+    try odsyDividendTracker.processClaims(gas) returns (uint256 iterations, uint256 claims, uint256 lastIndex) {
+      emit ProcessedDividends(iterations, claims, lastIndex, true, gas, tx.origin);
+    } catch {}
+    // (uint256 iterations, uint256 claims, uint256 lastIndex) = odsyDividendTracker.processClaims(gas);
+    // emit ProcessedDividends(iterations, claims, lastIndex, false, gas, tx.origin);
+  }
+
+  function setDividendsClaimWait(uint256 waitSeconds) external onlyOwner {
     odsyDividendTracker.setClaimWait(waitSeconds);
   }
 
-  function totalDividendsDistributed() external view returns (uint256) {
-    return odsyDividendTracker.totalDividendsDistributed();
+  function setDividendsExcludedAccount(address account, bool exclude) external onlyOwner{
+    odsyDividendTracker.setExcludedAccount(account, exclude);
   }
 
-  function withdrawableDividendOf(address account) public view returns(uint256) {
-    return odsyDividendTracker.withdrawableDividendOf(account);
+  function setDividendsMinimumBalance(uint256 amount) external onlyOwner {
+    require(amount >= 10_000_000 && amount <= 100_000_000, "ODSY: DividendsMinimumBalance must be between 10 and 100 million tokens");
+
+    odsyDividendTracker.setMinimumBalance(amount);
   }
 
   function _transfer(address from, address to, uint256 amount) internal override {
@@ -257,10 +271,11 @@ contract Odyssey is ERC20, Ownable {
     if (!swapping) {
       if (isTransfer(from, to)) { // NO FEES, JUST TRANSFER AND UPDATE TRACKER BALANCES
         transferAndUpdateTrackerBalances(from, to, amount);
+        processDividendsClaims(gasForProcessing);
         return; // JUST EXIT, NO NEED TO CHECK ACCUMULATORS
       }
 
-      bool feePayer = !_isExcludedFromFees[from] && !_isExcludedFromFees[to];
+      bool feePayer = !excludedFromFees[from] && !excludedFromFees[to];
       if (feePayer) { // RENDER UNTO CAESAR THE THINGS THAT ARE CAESAR'S
         uint256 taxTotal = 0;
         if (isSell(from, to)) {
@@ -294,10 +309,7 @@ contract Odyssey is ERC20, Ownable {
     transferAndUpdateTrackerBalances(from, to, amount);
 
     if (!swapping) {
-      uint256 gas = gasForProcessing;
-      try odsyDividendTracker.process(gas) returns (uint256 iterations, uint256 claims, uint256 lastIndex) {
-        emit ProcessedDividendTracker(iterations, claims, lastIndex, true, gas, tx.origin);
-      } catch {}
+      processDividendsClaims(gasForProcessing);
     }
   }
 
@@ -321,7 +333,7 @@ contract Odyssey is ERC20, Ownable {
   function setMarketMakerPair(address pair, bool active) private {
     require(autoMarketMakers[pair] != active, "ODSY: Value already set");
     autoMarketMakers[pair] = active;
-    if (active) odsyDividendTracker.excludeFromDividends(pair);
+    odsyDividendTracker.setExcludedAccount(pair, active);
   }
 
   function swapAndAddLiquidity(uint256 tokens) private {
@@ -344,8 +356,8 @@ contract Odyssey is ERC20, Ownable {
     if (trackerETH > 0) {
       (bool success,) = address(odsyDividendTracker).call{value: trackerETH}(""); //
       if (success) {
-        emit SentETHToDividendTracker(trackerETH);
-        try odsyDividendTracker.distributeDividends() {} catch {}
+        emit SentFundsToDividendTracker(trackerETH);
+//        try odsyDividendTracker.distributeFunds() {} catch {}
       }
     }
   }
@@ -356,7 +368,7 @@ contract Odyssey is ERC20, Ownable {
     uint256 currentETH = address(this).balance; // PROJECT SWEEPS UP ANY LINGERING FUNDS
     if (currentETH > 0) {
       (bool success,) = address(projectWallet).call{value: currentETH}("");
-      if (success) emit SentETHToProject(currentETH);
+      if (success) emit SentFundsToProject(currentETH);
     }
   }
 
@@ -367,15 +379,6 @@ contract Odyssey is ERC20, Ownable {
     _approve(address(this), address(uniswapV2Router), tokens);
     uniswapV2Router.swapExactTokensForETHSupportingFeeOnTransferTokens(tokens, 0, pair, address(this), block.timestamp);
   }
-
-  // function swapTokensForOtherToken(uint256 tokens, address coinAddress) private {
-  //   address[] memory path = new address[](3);
-  //   path[0] = address(this);
-  //   path[1] = uniswapV2Router.WETH();
-  //   path[2] = coinAddress;
-  //   _approve(address(this), address(uniswapV2Router), tokens);
-  //   uniswapV2Router.swapExactTokensForTokensSupportingFeeOnTransferTokens(tokens, 0, path, address(this), block.timestamp);
-  // }
 
   function transferAndUpdateTrackerBalances(address from, address to, uint256 amount) private {
     super._transfer(from, to, amount);

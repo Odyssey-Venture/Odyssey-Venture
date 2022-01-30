@@ -14,6 +14,7 @@ chai.use(chaiAsPromised);
 const expect = chai.expect;
 const assert = chai.assert;
 
+const ROUTER = "0x10ED43C718714eb63d5aA57B78B54704E256024E";
 
 const defaults = {
   name: 'Odyssey',
@@ -32,7 +33,7 @@ function toWei(count) {
 contract('Odyssey', function (accounts) {
   const [owner, holder1, holder2, holder3] = accounts;
   let contract;
-  let tx;
+  let transaction;
   let uniswapV2Pair;
 
   const wallets = {
@@ -43,7 +44,7 @@ contract('Odyssey', function (accounts) {
   beforeEach('setup contract for each test', async function() {
     contract = await Odyssey.new();
     uniswapV2Pair = await contract.uniswapV2Pair();
-    wallets.liquidity = await contract.contractAddress();
+    wallets.liquidity = owner;
   });
 
   it('has an owner', async function() {
@@ -66,9 +67,16 @@ contract('Odyssey', function (accounts) {
     console.log('Checking totalSupply allocated to owner');
     expect(await contract.balanceOf(owner)).to.be.a.bignumber.equal(supply);
     assert.equal(await contract.balanceOf(owner), toWei(defaults.totalSupply), 'Owner does not have totalSupply');
-    console.log('Checking no supply allocated to Liquidity or Project wallet');
-    expect(await contract.balanceOf(wallets.liquidity)).to.be.a.bignumber.equal('0');
+    console.log('Checking no supply allocated to Project wallet');
     expect(await contract.balanceOf(wallets.project)).to.be.a.bignumber.equal('0');
+  });
+
+  it('only owner can send funds to contract', async function() {
+    await expectRevert(contract.send(6, { from: holder2 }), 'Ownable: caller is not the owner');
+    transaction = await contract.send(6, { from: owner });
+    expectEvent(transaction, 'ReceivedFunds', { from: owner, amount: (6).toString() });
+
+    console.log(owner.balance);
   });
 
   it('has max wallet and max sell limits', async function () {
@@ -85,14 +93,14 @@ contract('Odyssey', function (accounts) {
     assert.isTrue(await contract.isExcludedFromFees(wallets.project), 'Project Wallet is incorrect');
 
     console.log('Checking project wallet cannot be set to existing value');
-    await expectRevert(contract.setProjectWallet(wallets.project, { from: owner }), 'ODSY: Wallet already set');
+    await expectRevert(contract.setProjectWallet(wallets.project, { from: owner }), 'ODSY: Value already set');
 
     console.log('Checking owner can change project wallet');
-    tx = await contract.setProjectWallet(holder1, { from: owner });
+    transaction = await contract.setProjectWallet(holder1, { from: owner });
     assert.equal(await contract.projectWallet(), holder1, 'Project Wallet not changed');
     assert.isFalse(await contract.isExcludedFromFees(wallets.project), 'Old Project Wallet should not be in exclusions');
     assert.isTrue(await contract.isExcludedFromFees(holder1), 'New Project Wallet should be in exclusions');
-    expectEvent(tx, 'ProjectWalletChanged', { previousValue: wallets.project, newValue: holder1 });
+    expectEvent(transaction, 'ProjectWalletChanged', { previousValue: wallets.project, newValue: holder1 });
 
     console.log('Checking only owner can change project wallet');
     await expectRevert(contract.setProjectWallet(holder1, { from: holder1 }), 'Ownable: caller is not the owner');
@@ -106,13 +114,13 @@ contract('Odyssey', function (accounts) {
     assert.isTrue(await contract.isExcludedFromFees(wallets.liquidity), 'Liquidity Wallet is incorrect');
 
     console.log('Checking liquidity wallet cannot be set to existing value');
-    await expectRevert(contract.setLiquidityWallet(wallets.liquidity, { from: owner }), 'ODSY: Wallet already set');
+    await expectRevert(contract.setLiquidityWallet(wallets.liquidity, { from: owner }), 'ODSY: Value already set');
 
     console.log('Checking owner can change liquidity wallet');
-    tx = await contract.setLiquidityWallet(holder1, { from: owner });
+    transaction = await contract.setLiquidityWallet(holder1, { from: owner });
     assert.equal(await contract.liquidityWallet(), holder1, 'Liquidity Wallet should have changed');
     assert.isTrue(await contract.isExcludedFromFees(holder1), 'New Liquidity Wallet should be in exclusions');
-    expectEvent(tx, 'LiquidityWalletChanged', { previousValue: wallets.liquidity, newValue: holder1 });
+    expectEvent(transaction, 'LiquidityWalletChanged', { previousValue: wallets.liquidity, newValue: holder1 });
 
     await contract.setLiquidityWallet(holder2, { from: owner });
     assert.isFalse(await contract.isExcludedFromFees(holder1), 'Old Liquidity Wallet should not be in exclusions');
@@ -122,18 +130,16 @@ contract('Odyssey', function (accounts) {
     await expectRevert(contract.setLiquidityWallet(holder1, { from: holder1 }), 'Ownable: caller is not the owner');
   });
 
-  it('has allows owner to exclude wallets from fees', async function () {
+  it('allows owner to exclude wallets from fees', async function () {
     await expectRevert(contract.excludeFromFees(holder1, true, { from: holder1 }), 'Ownable: caller is not the owner');
     assert.isFalse(await contract.isExcludedFromFees(holder1));
-    tx = await contract.excludeFromFees(holder1, true, { from: owner });
-    expectEvent(tx, 'ExcludedFromFees', { account: holder1, isExcluded: true });
+    transaction = await contract.excludeFromFees(holder1, true, { from: owner });
+    expectEvent(transaction, 'ExcludedFromFees', { account: holder1, isExcluded: true });
     assert.isTrue(await contract.isExcludedFromFees(holder1), 'Wallet should be in exclusions');
-    assert.isFalse(await contract.isSubjectedToFees(holder1), 'Wallet should be in exclusions');
 
-    tx = await contract.excludeFromFees(holder1, false, { from: owner });
-    expectEvent(tx, 'ExcludedFromFees', { account: holder1, isExcluded: false });
+    transaction = await contract.excludeFromFees(holder1, false, { from: owner });
+    expectEvent(transaction, 'ExcludedFromFees', { account: holder1, isExcluded: false });
     assert.isFalse(await contract.isExcludedFromFees(holder1), 'Wallet should not be in exclusions');
-    assert.isTrue(await contract.isSubjectedToFees(holder1), 'Wallet should be in exclusions');
   });
 
   it('calculates fees based on last marketcap', async function () {
@@ -150,14 +156,14 @@ contract('Odyssey', function (accounts) {
       fee = tiers[idx];
       fee.total = fee.rewards + fee.liquidity + fee.project;
       console.log(`Checking fees when MC ${fee.marketcap}: Buy ${fee.buy} / Sell ${fee.total} [reward ${fee.rewards} market ${fee.project} liquid ${fee.liquidity}]`);
-      tx = await contract.setMarketCap(fee.marketcap);
+      transaction = await contract.setMarketCap(fee.marketcap);
       assert.equal((await contract.lastMarketCap()).toNumber(), fee.marketcap);
       assert.equal((await contract.feeToBuy()).toNumber(),      fee.buy);
       assert.equal((await contract.feeRewards()).toNumber(),    fee.rewards);
       assert.equal((await contract.feeProject()).toNumber(),    fee.project);
       assert.equal((await contract.feeLiquidity()).toNumber(),  fee.liquidity);
       assert.equal((await contract.feeToSell()).toNumber(),     fee.total);
-      expectEvent(tx, 'FeesChanged', {
+      expectEvent(transaction, 'FeesChanged', {
         marketCap:    fee.marketcap.toString(),
         feeToBuy:     fee.buy.toString(),
         feeToSell:    fee.total.toString(),
@@ -185,43 +191,36 @@ contract('Odyssey', function (accounts) {
     const amount = 10000;
     const bnAmount = new BN(amount);
     console.log('Checking transfer from wallet to wallet');
-    tx = await contract.transfer(holder1, amount, { from: owner });
-    expectEvent(tx, 'Transfer', { from: owner, to: holder1, value: bnAmount });
+    transaction = await contract.transfer(holder1, amount, { from: owner });
+    expectEvent(transaction, 'Transfer', { from: owner, to: holder1, value: bnAmount });
     expect(await contract.balanceOf(owner)).to.be.a.bignumber.equal(totalSupply.sub(bnAmount));
     expect(await contract.balanceOf(holder1)).to.be.a.bignumber.equal(bnAmount);
 
-    tx = await contract.transfer(holder2, amount, { from: holder1 });
-    expectEvent(tx, 'Transfer', { from: holder1, to: holder2, value: bnAmount });
+    transaction = await contract.transfer(holder2, amount, { from: holder1 });
+    expectEvent(transaction, 'Transfer', { from: holder1, to: holder2, value: bnAmount });
     expect(await contract.balanceOf(holder1)).to.be.a.bignumber.equal('0');
     expect(await contract.balanceOf(holder2)).to.be.a.bignumber.equal(bnAmount);
-    console.log('Checking that no fees were sent to Liquidity or Project');
-    expect(await contract.balanceOf(wallets.liquidity)).to.be.a.bignumber.equal('0');
-    expect(await contract.balanceOf(wallets.project)).to.be.a.bignumber.equal('0');
+    console.log('Checking that no fees were sent to Accumulators');
+    expect(await contract.accumulatedRewards()).to.be.a.bignumber.equal('0');
+    expect(await contract.accumulatedProject()).to.be.a.bignumber.equal('0');
+    expect(await contract.accumulatedLiquidity()).to.be.a.bignumber.equal('0');
+    expect(await contract.balanceOf(contract.address)).to.be.a.bignumber.equal('0');
   });
 
-  it('collects proper fees when transaction is a buy', async function() {
-    let totalSupply = await contract.totalSupply();
-    const amount = 10000;
-    const bnAmount = new BN(amount);
-    tx = await contract.transfer('0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D', amount);
-    console.log(tx);
-    expectEvent(tx, 'Transfer', { from: owner, to: '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D', value: bnAmount });
-    await contract.transfer(holder1, amount, { from: uniswapV2Pair });
-    console.log((await contract.balanceOf(owner)).toString());
-    console.log((await contract.balanceOf(uniswapV2Pair)).toString());
-    console.log((await contract.balanceOf(holder1)).toString());
-    console.log((await contract.balanceOf(wallets.project)).toString());
-    console.log((await contract.balanceOf(wallets.liquidity)).toString());
+  // it('collects proper fees when transaction is a buy', async function() {
+    // let totalSupply = await contract.totalSupply();
+    // const amount = 10000;
+    // const bnAmount = new BN(amount);
+    // transaction = await contract.transfer(ROUTER, amount, { from: owner });
+    // console.log(transaction);
+    // expectEvent(transaction, 'Transfer', { from: owner, to: ROUTER, value: bnAmount });
+    // await contract.transfer(holder1, amount, { from: uniswapV2Pair });
+    // console.log((await contract.balanceOf(owner)).toString());
+    // console.log((await contract.balanceOf(uniswapV2Pair)).toString());
+    // console.log((await contract.balanceOf(holder1)).toString());
+    // console.log((await contract.balanceOf(wallets.project)).toString());
+    // console.log((await contract.balanceOf(wallets.liquidity)).toString());
     // expect(await contract.balanceOf(owner)).to.be.a.bignumber.equal(totalSupply.sub(bnAmount));
     // expect(await contract.balanceOf(uniswapV2Pair)).to.be.a.bignumber.equal(bnAmount);
-
-  });
-
-  it('can receive funds', async function() {
-    tx = await contract.send(6, { from: holder2 });
-    expectEvent(tx, 'Received', { from: holder2, amount: (6).toString() });
-
-    console.log(holder2.balance);
-  });
-
+  // });
 });

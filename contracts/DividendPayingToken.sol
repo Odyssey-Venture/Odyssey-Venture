@@ -2,69 +2,80 @@
 pragma solidity ^0.8.11;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "./SafeMathInt.sol";
 import "./SafeMathUint.sol";
-import "./DividendPayingTokenInterface.sol";
-import "./DividendPayingTokenOptionalInterface.sol";
+import "./IDividendPayingToken.sol";
 
-contract DividendPayingToken is Ownable, DividendPayingTokenInterface, DividendPayingTokenOptionalInterface {
+contract DividendPayingToken is Ownable, IDividendPayingToken {
   using SafeMath for uint256;
   using SafeMathUint for uint256;
   using SafeMathInt for int256;
 
-  uint256 constant internal magnitude = 2**128;
-  uint256 internal magnifiedDividendPerShare;
-  address public dividendToken = address(0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56); // BUSD
+  uint256 constant internal magnifier = 2**128;
+  uint256 internal magnifiedBalanceOf;
   uint256 public totalBalance = 0;
-  uint256 public totalDividendsDistributed;
+  uint256 public totalDistributed;
+  uint256 public ownerTotalSupply = 0;
 
-  mapping(address => int256) internal magnifiedDividendCorrections;
+  string private tracker_name;
+  string private tracker_symbol;
+
+  mapping(address => int256) internal magnifiedCorrections;
   mapping(address => uint256) internal withdrawnDividends;
   mapping (address => uint256) public balanceOf;
 
+  event ReceivedFunds(address indexed from, uint amount);
   event SetDividendToken(address indexed previousValue, address indexed newValue);
+  event SetOwnerTotalSupply(uint256 totalSupply);
 
   receive() external payable {
-    distributeDividends();
+    emit ReceivedFunds(msg.sender, msg.value);
+    distributeFunds();
   }
 
-  constructor () {}
-
-  function accumulativeDividendOf(address _owner) public view override returns(uint256) {
-    return magnifiedDividendPerShare.mul(balanceOf[_owner]).toInt256Safe().add(magnifiedDividendCorrections[_owner]).toUint256Safe() / magnitude;
+  constructor(string memory name_, string memory symbol_) {
+    tracker_name = name_;
+    tracker_symbol = symbol_;
   }
 
-  function distributeDividends() public override payable {
+  function name() public view virtual override returns (string memory) {
+    return tracker_name;
+  }
+
+  function symbol() public view virtual override returns (string memory) {
+    return tracker_symbol;
+  }
+
+  function getAccumulated(address _owner) public view override returns(uint256) {
+    return magnifiedBalanceOf.mul(balanceOf[_owner]).toInt256Safe().add(magnifiedCorrections[_owner]).toUint256Safe() / magnifier;
+  }
+
+  function distributeFunds() public override payable {
     require(totalBalance > 0);
     uint256 amount = msg.value;
     if (amount > 0) {
-      magnifiedDividendPerShare = magnifiedDividendPerShare.add((amount).mul(magnitude) / totalBalance);
-      emit DividendsDistributed(msg.sender, amount);
-      totalDividendsDistributed = totalDividendsDistributed.add(amount);
+      magnifiedBalanceOf = magnifiedBalanceOf.add((amount).mul(magnifier) / totalBalance);
+      emit DistributedFunds(msg.sender, amount);
+      totalDistributed = totalDistributed.add(amount);
     }
   }
 
-  function dividendOf(address _owner) public view override returns(uint256) {
-    return withdrawableDividendOf(_owner);
+  function setOwnerTotalSupply(uint256 totalSupply) external virtual onlyOwner { // TO DO - USE THIS IN MIN/MAX BALANCE
+    require(totalSupply > 0);
+    ownerTotalSupply = totalSupply;
+    emit SetOwnerTotalSupply(totalSupply);
   }
 
-  function setDividendToken(address newToken) external virtual onlyOwner {
-    address oldToken = dividendToken;
-    dividendToken = newToken;
-    emit SetDividendToken(oldToken, newToken);
+  function withdrawRewards() public virtual override {
+    processWithdraw(payable(msg.sender));
   }
 
-  function withdrawDividend() public virtual override {
-    withdrawDividendOfUser(payable(msg.sender));
+  function getWithdrawable(address _owner) external view override returns(uint256) {
+    return getAccumulated(_owner).sub(withdrawnDividends[_owner]);
   }
 
-  function withdrawableDividendOf(address _owner) public view override returns(uint256) {
-    return accumulativeDividendOf(_owner).sub(withdrawnDividends[_owner]);
-  }
-
-  function withdrawnDividendOf(address _owner) public view override returns(uint256) {
+  function getWithdrawn(address _owner) public view override returns(uint256) {
     return withdrawnDividends[_owner];
   }
 
@@ -85,27 +96,23 @@ contract DividendPayingToken is Ownable, DividendPayingTokenInterface, DividendP
   }
 
   function decreaseBalance(address account, uint256 value) internal {
-    magnifiedDividendCorrections[account] = magnifiedDividendCorrections[account].add((magnifiedDividendPerShare.mul(value)).toInt256Safe());
+    magnifiedCorrections[account] = magnifiedCorrections[account].add((magnifiedBalanceOf.mul(value)).toInt256Safe());
   }
 
   function increaseBalance(address account, uint256 value) internal {
-    magnifiedDividendCorrections[account] = magnifiedDividendCorrections[account].sub((magnifiedDividendPerShare.mul(value)).toInt256Safe());
+    magnifiedCorrections[account] = magnifiedCorrections[account].sub((magnifiedBalanceOf.mul(value)).toInt256Safe());
   }
 
-  function withdrawDividendOfUser(address payable user) internal returns (uint256) {
-    uint256 dividends = withdrawableDividendOf(user);
-    if (dividends > 0) {
-      withdrawnDividends[user] = withdrawnDividends[user].add(dividends);
-      emit DividendWithdrawn(user, dividends);
-      bool success = IERC20(dividendToken).transfer(user, dividends);
-      if (!success) {
-        withdrawnDividends[user] = withdrawnDividends[user].sub(dividends);
-        return 0;
-      }
-      return dividends;
+  function processWithdraw(address payable user) internal returns (uint256) {
+    uint256 dividends = this.getWithdrawable(user);
+    if (dividends <= 0) return 0;
+    withdrawnDividends[user] = withdrawnDividends[user].add(dividends);
+    emit DividendsWithdrawn(user, dividends);
+    (bool success,) = user.call{value: dividends, gas: 3000}("");
+    if (!success) {
+      withdrawnDividends[user] = withdrawnDividends[user].sub(dividends);
+      return 0;
     }
-    return 0;
+    return dividends;
   }
-
-
 }
