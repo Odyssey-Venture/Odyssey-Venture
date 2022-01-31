@@ -45,6 +45,7 @@ contract('Odyssey', function (accounts) {
     contract = await Odyssey.new();
     uniswapV2Pair = await contract.uniswapV2Pair();
     wallets.liquidity = owner;
+    await contract.openToPublic();
   });
 
   it('has an owner', async function() {
@@ -74,14 +75,14 @@ contract('Odyssey', function (accounts) {
   it('only owner can send funds to contract', async function() {
     await expectRevert(contract.send(6, { from: holder2 }), 'Ownable: caller is not the owner');
     transaction = await contract.send(6, { from: owner });
-    expectEvent(transaction, 'ReceivedFunds', { from: owner, amount: (6).toString() });
+    expectEvent(transaction, 'FundsReceived', { from: owner, amount: (6).toString() });
 
     console.log(owner.balance);
   });
 
   it('has max wallet and max sell limits', async function () {
     console.log('Checking max wallet and sell');
-    assert.equal(await contract.maxWalletAmount(), toWei(defaults.maxWallet));
+    assert.equal(await contract.maxWalletLimit(), toWei(defaults.maxWallet));
     assert.equal(await contract.maxSellAmount(), toWei(defaults.maxSell));
   });
 
@@ -100,7 +101,7 @@ contract('Odyssey', function (accounts) {
     assert.equal(await contract.projectWallet(), holder1, 'Project Wallet not changed');
     assert.isFalse(await contract.isExcludedFromFees(wallets.project), 'Old Project Wallet should not be in exclusions');
     assert.isTrue(await contract.isExcludedFromFees(holder1), 'New Project Wallet should be in exclusions');
-    expectEvent(transaction, 'ProjectWalletChanged', { previousValue: wallets.project, newValue: holder1 });
+    expectEvent(transaction, 'ProjectWalletChanged', { from: wallets.project, to: holder1 });
 
     console.log('Checking only owner can change project wallet');
     await expectRevert(contract.setProjectWallet(holder1, { from: holder1 }), 'Ownable: caller is not the owner');
@@ -120,7 +121,7 @@ contract('Odyssey', function (accounts) {
     transaction = await contract.setLiquidityWallet(holder1, { from: owner });
     assert.equal(await contract.liquidityWallet(), holder1, 'Liquidity Wallet should have changed');
     assert.isTrue(await contract.isExcludedFromFees(holder1), 'New Liquidity Wallet should be in exclusions');
-    expectEvent(transaction, 'LiquidityWalletChanged', { previousValue: wallets.liquidity, newValue: holder1 });
+    expectEvent(transaction, 'LiquidityWalletChanged', { from: wallets.liquidity, to: holder1 });
 
     await contract.setLiquidityWallet(holder2, { from: owner });
     assert.isFalse(await contract.isExcludedFromFees(holder1), 'Old Liquidity Wallet should not be in exclusions');
@@ -144,25 +145,25 @@ contract('Odyssey', function (accounts) {
 
   it('calculates fees based on last marketcap', async function () {
     let tiers = [
-      { buy: 2, rewards: 6, liquidity: 4, project: 2, marketcap:       1_000 },
-      { buy: 2, rewards: 6, liquidity: 4, project: 2, marketcap:     999_999 },
-      { buy: 2, rewards: 5, liquidity: 3, project: 2, marketcap:   1_000_000 },
-      { buy: 2, rewards: 4, liquidity: 2, project: 2, marketcap:   4_000_000 },
-      { buy: 2, rewards: 3, liquidity: 2, project: 1, marketcap:  16_000_000 },
-      { buy: 2, rewards: 2, liquidity: 2, project: 0, marketcap:  64_000_000 },
-      { buy: 2, rewards: 1, liquidity: 1, project: 0, marketcap: 256_000_000 }
+      { level: 2, buy: 2, rewards: 5, liquidity: 3, project: 2, marketcap:   1_000_000 },
+      { level: 1, buy: 2, rewards: 6, liquidity: 4, project: 2, marketcap:     999_999 },
+      { level: 3, buy: 2, rewards: 4, liquidity: 2, project: 2, marketcap:   4_000_000 },
+      { level: 4, buy: 2, rewards: 3, liquidity: 2, project: 1, marketcap:  16_000_000 },
+      { level: 5, buy: 2, rewards: 2, liquidity: 2, project: 0, marketcap:  64_000_000 },
+      { level: 6, buy: 2, rewards: 1, liquidity: 1, project: 0, marketcap: 256_000_000 },
+      { level: 1, buy: 2, rewards: 6, liquidity: 4, project: 2, marketcap:       1_000 }
     ];
     for (var idx=0; idx < tiers.length; idx++) {
       fee = tiers[idx];
       fee.total = fee.rewards + fee.liquidity + fee.project;
       console.log(`Checking fees when MC ${fee.marketcap}: Buy ${fee.buy} / Sell ${fee.total} [reward ${fee.rewards} market ${fee.project} liquid ${fee.liquidity}]`);
       transaction = await contract.setMarketCap(fee.marketcap);
-      assert.equal((await contract.lastMarketCap()).toNumber(), fee.marketcap);
-      assert.equal((await contract.feeToBuy()).toNumber(),      fee.buy);
-      assert.equal((await contract.feeRewards()).toNumber(),    fee.rewards);
-      assert.equal((await contract.feeProject()).toNumber(),    fee.project);
-      assert.equal((await contract.feeLiquidity()).toNumber(),  fee.liquidity);
-      assert.equal((await contract.feeToSell()).toNumber(),     fee.total);
+      assert.equal((await contract.feeLevel()).toNumber(),     fee.level);
+      assert.equal((await contract.feeToBuy()).toNumber(),     fee.buy);
+      assert.equal((await contract.feeRewards()).toNumber(),   fee.rewards);
+      assert.equal((await contract.feeProject()).toNumber(),   fee.project);
+      assert.equal((await contract.feeLiquidity()).toNumber(), fee.liquidity);
+      assert.equal((await contract.feeToSell()).toNumber(),    fee.total);
       expectEvent(transaction, 'FeesChanged', {
         marketCap:    fee.marketcap.toString(),
         feeToBuy:     fee.buy.toString(),
@@ -174,17 +175,17 @@ contract('Odyssey', function (accounts) {
     }
   });
 
-  it('can tell difference between a buy, a sell, and a transfer', async function () {
-    console.log('Checking that moving from uniswapV2Pair to EOA is a Buy');
-    let isBuy = await contract.isBuy(uniswapV2Pair, owner);
-    assert.isTrue(isBuy, 'isBuy has failed.');
-    console.log('Checking that moving from EOA to uniswapV2Pair is a Sell');
-    let isSell = await contract.isSell(owner, uniswapV2Pair);
-    assert.isTrue(isSell, 'isSell has failed.');
-    console.log('Checking that moving from EOA to EOA is a Transfer');
-    let isTransfer = await contract.isTransfer(owner, holder2);
-    assert.isTrue(isTransfer, 'isTransfer has failed.');
-  });
+  // it('can tell difference between a buy, a sell, and a transfer', async function () {
+  //   console.log('Checking that moving from uniswapV2Pair to EOA is a Buy');
+  //   let isBuy = await contract.isBuy(uniswapV2Pair, owner);
+  //   assert.isTrue(isBuy, 'isBuy has failed.');
+  //   console.log('Checking that moving from EOA to uniswapV2Pair is a Sell');
+  //   let isSell = await contract.isSell(owner, uniswapV2Pair);
+  //   assert.isTrue(isSell, 'isSell has failed.');
+  //   console.log('Checking that moving from EOA to EOA is a Transfer');
+  //   let isTransfer = await contract.isTransfer(owner, holder2);
+  //   assert.isTrue(isTransfer, 'isTransfer has failed.');
+  // });
 
   it('collects no fees when transferring EOA to EOA', async function() {
     let totalSupply = await contract.totalSupply();
