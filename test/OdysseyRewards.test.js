@@ -35,62 +35,67 @@ contract('Odyssey', function (accounts) {
     await contract.openToPublic();
   });
 
-  // it('has a tracker and owns it :snaps:', async function () {
-  //   console.log('Checking contract has a tracker for rewards.');
-  //   assert.equal(await tracker.owner(), contract.address, "Dude, where's my tracker?");
-  // });
+  it('has a tracker and owns it :snaps:', async function () {
+    console.log('Checking contract has a tracker for rewards.');
+    assert.equal(await tracker.owner(), contract.address, "Dude, where's my tracker?");
+  });
 
-  // it('allows owner to exclude wallets from rewards', async function () {
-  //   console.log('Checking only owner can exclude from rewards.');
-  //   await expectRevert(contract.setRewardsExcludedAccount(holder1, true, { from: holder1 }), 'Ownable: caller is not the owner');
-  //   assert.isFalse(await contract.isRewardsExcludedAccount(holder1));
-  //   console.log('Checking owner can exclude from rewards.');
-  //   transaction = await contract.setRewardsExcludedAccount(holder1, true, { from: owner });
-  //   expectEvent.inTransaction(transaction.tx, tracker, 'ExcludedFromRewards', { account: holder1, isExcluded: true });
-  //   assert.isTrue(await contract.isRewardsExcludedAccount(holder1), 'Wallet should be in exclusions');
-  //   console.log('Checking same wallet cannot be excluded twice.');
-  //   await expectRevert(contract.setRewardsExcludedAccount(holder1, true, { from: owner }), 'OdysseyRewards: Value already set');
-  //   console.log('Checking owner can remove exclusion from rewards');
-  //   transaction = await contract.setRewardsExcludedAccount(holder1, false, { from: owner });
-  //   expectEvent.inTransaction(transaction.tx, tracker, 'ExcludedFromRewards', { account: holder1, isExcluded: false });
-  //   assert.isFalse(await contract.isRewardsExcludedAccount(holder1), 'Wallet should not be in exclusions');
-  // });
+  it('allows owner to exclude wallets from rewards', async function () {
+    console.log('Checking only owner can exclude from rewards.');
+    await expectRevert(contract.setRewardsExcludedAccount(holder1, true, { from: holder1 }), 'Ownable: caller is not the owner');
+    assert.isFalse(await tracker.excludedAddresses(holder1));
+    console.log('Checking owner can exclude from rewards.');
+    transaction = await contract.setRewardsExcludedAccount(holder1, true, { from: owner });
+    expectEvent.inTransaction(transaction.tx, tracker, 'ExcludedFromRewards', { account: holder1, isExcluded: true });
+    assert.isTrue(await tracker.excludedAddresses(holder1), 'Wallet should be in exclusions');
+    console.log('Checking same wallet cannot be excluded twice.');
+    await expectRevert(contract.setRewardsExcludedAccount(holder1, true, { from: owner }), 'OdysseyRewards: Value already set');
+    console.log('Checking owner can remove exclusion from rewards');
+    transaction = await contract.setRewardsExcludedAccount(holder1, false, { from: owner });
+    expectEvent.inTransaction(transaction.tx, tracker, 'ExcludedFromRewards', { account: holder1, isExcluded: false });
+    assert.isFalse(await tracker.excludedAddresses(holder1), 'Wallet should not be in exclusions');
+  });
 
-  // it('allows owner to set waiting period between reward claims', async function () {
-  //   console.log('Checking only owner can change claim waiting period.');
-  //   await expectRevert(contract.setRewardsClaimWaitingPeriod(100, { from: holder1 }), 'Ownable: caller is not the owner');
-  //   console.log('Checking owner can change claim waiting period to a value between 1 hour and 1 day');
-  //   await expectRevert(contract.setRewardsClaimWaitingPeriod(secs_in_hour - 1, { from: owner }), 'OdysseyRewards: claimWaitingPeriod must be between 1 and 24 hours');
-  //   await expectRevert(contract.setRewardsClaimWaitingPeriod(secs_in_hour * 25, { from: owner }), 'OdysseyRewards: claimWaitingPeriod must be between 1 and 24 hours');
-  //   transaction = await contract.setRewardsClaimWaitingPeriod(secs_in_hour * 3, { from: owner });
-  //   expectEvent.inTransaction(transaction.tx, tracker, 'ClaimWaitingPeriodChanged', { from: '21600', to: '10800' });
-  // });
+  it('allows owner to set waiting period between reward claims', async function () {
+    console.log('Checking only owner can change claim waiting period.');
+    await expectRevert(contract.setRewardsClaimWaitingPeriod(100, { from: holder1 }), 'Ownable: caller is not the owner');
+    console.log('Checking owner can change claim waiting period to a value between 1 hour and 1 day');
+    await expectRevert(contract.setRewardsClaimWaitingPeriod(secs_in_hour - 1, { from: owner }), 'OdysseyRewards: claimWaitingPeriod must be between 1 and 24 hours');
+    await expectRevert(contract.setRewardsClaimWaitingPeriod(secs_in_hour * 25, { from: owner }), 'OdysseyRewards: claimWaitingPeriod must be between 1 and 24 hours');
+    transaction = await contract.setRewardsClaimWaitingPeriod(secs_in_hour * 3, { from: owner });
+    expectEvent.inTransaction(transaction.tx, tracker, 'ClaimWaitingPeriodChanged', { from: '21600', to: '10800' });
+  });
 
-  // it('allows owner to set minimum balance for earning rewards', async function () {
-  //   console.log('Checking only owner can setRewardsMinimumBalance.');
-  //   await expectRevert(contract.setRewardsMinimumBalance(20_000_000, { from: holder1 }), 'Ownable: caller is not the owner');
-  //   console.log('Checking minimum balance for earning rewards has a minimum');
-  //   await expectRevert(contract.setRewardsMinimumBalance(9_999_999, { from: owner }), 'ODSY: RewardsMinimumBalance must be between 10 and 100 million tokens');
-  //   await expectRevert(contract.setRewardsMinimumBalance(100_000_001, { from: owner }), 'ODSY: RewardsMinimumBalance must be between 10 and 100 million tokens');
-  //   console.log('Checking owner can change setRewardsMinimumBalance.');
-  //   transaction = await contract.setRewardsMinimumBalance(20_000_000, { from: owner });
-  //   expectEvent.inTransaction(transaction.tx, tracker, 'MinimumBalanceChanged', { from: '10000000', to: '20000000' });
-  // });
+  it('allows owner to set minimum balance for earning rewards', async function () {
+    console.log('Checking only owner can setRewardsMinimumBalance.');
+    await expectRevert(contract.setRewardsMinimumBalance(20_000_000, { from: holder1 }), 'Ownable: caller is not the owner');
+    console.log('Checking minimum balance for earning rewards has a minimum');
+    await expectRevert(contract.setRewardsMinimumBalance(9_999_999, { from: owner }), 'Value invalid');
+    await expectRevert(contract.setRewardsMinimumBalance(100_000_001, { from: owner }), 'Value invalid');
+    console.log('Checking owner can change setRewardsMinimumBalance.');
+    transaction = await contract.setRewardsMinimumBalance(20_000_000, { from: owner });
+    expectEvent.inTransaction(transaction.tx, tracker, 'MinimumBalanceChanged', { from: '10000000', to: '20000000' });
+  });
 
-  // it('requires a minimum balance of tokens to be tracked', async function () {
-  //   console.log('Checking transfers under minimum balance are not tracked.');
-  //   await contract.transfer(holder1, toWei(9_000_000), { from: owner }); // NOT ENOUGH
-  //   expect(await contract.getRewardsHolderCount()).to.be.a.bignumber.equal('0');
-  //   expect(await contract.getRewardsBalanceOf(holder1)).to.be.a.bignumber.equal('0');
-  //   console.log('Checking transfers over minimum balance are tracked.');
-  //   await contract.transfer(holder2, toWei(20_000_000), { from: owner });
-  //   expect(await contract.getRewardsHolderCount()).to.be.a.bignumber.equal('1');
-  //   expect(await contract.getRewardsBalanceOf(holder2)).to.be.a.bignumber.equal(toWei(20_000_000));
-  //   console.log('Checking transfers are tracked and can be viewed by holders.');
-  //   await contract.transfer(holder3, toWei(30_000_000), { from: owner });
-  //   expect(await contract.getRewardsBalanceOf(holder3)).to.be.a.bignumber.equal(toWei(30_000_000));
-  //   expect(await contract.getRewardsHolderCount({ from: holder3 })).to.be.a.bignumber.equal('2');
-  // });
+  it('requires a minimum balance of tokens to be tracked', async function () {
+    console.log('Checking transfers under minimum balance are not tracked.');
+    await contract.transfer(holder1, toWei(9_000_000), { from: owner }); // NOT ENOUGH
+    expect(await tracker.getHolderCount()).to.be.a.bignumber.equal('0');
+    expect(await tracker.balanceOf(holder1)).to.be.a.bignumber.equal('0');
+    console.log('Checking transfers over minimum balance are tracked.');
+    await contract.transfer(holder2, toWei(20_000_000), { from: owner });
+    expect(await tracker.getHolderCount()).to.be.a.bignumber.equal('1');
+    expect(await tracker.balanceOf(holder2)).to.be.a.bignumber.equal(toWei(20_000_000));
+    console.log('Checking transfers are tracked and can be viewed by holders.');
+    await contract.transfer(holder3, toWei(30_000_000), { from: owner });
+    expect(await tracker.balanceOf(holder3)).to.be.a.bignumber.equal(toWei(30_000_000));
+    expect(await tracker.getHolderCount({ from: holder3 })).to.be.a.bignumber.equal('2');
+  });
+
+
+  it('can read rewards info', async function () {
+    console.log(await contract.getRewardsSettings());
+  });
 
   it('properly splits and distributes rewards', async function () {
     console.log('Checking no holders have any balances yet.');
@@ -105,7 +110,7 @@ contract('Odyssey', function (accounts) {
     await contract.transfer(holder1, toWei(10_000_000), { from: owner });
     await contract.transfer(holder2, toWei(20_000_000), { from: owner });
     await contract.transfer(holder3, toWei(30_000_000), { from: owner });
-    expect(await contract.getRewardsHolderCount()).to.be.a.bignumber.equal('3');
+    expect(await tracker.getHolderCount()).to.be.a.bignumber.equal('3');
     console.log('Checking no holders have any balances yet.');
     expect(await tracker.getAccumulated(holder1)).to.be.a.bignumber.equal('0');
     expect(await tracker.getAccumulated(holder2)).to.be.a.bignumber.equal('0');
@@ -171,7 +176,9 @@ contract('Odyssey', function (accounts) {
     expect(await tracker.getPending(holder2)).to.be.a.bignumber.equal('0');
     expect(await tracker.getPending(holder3)).to.be.a.bignumber.equal('0');
 
-    expect(await contract.getRewardsTotalDistributed()).to.be.a.bignumber.equal(toWei('30'));
+    expect(await tracker.totalDistributed()).to.be.a.bignumber.equal(toWei('30'));
+
+    console.log(await contract.getRewardsReport(holder3));
   });
 
 

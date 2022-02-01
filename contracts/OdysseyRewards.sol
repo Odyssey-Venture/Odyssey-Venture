@@ -10,7 +10,7 @@ contract OdysseyRewards is RewardsTracker {
   using IterableMapping for IterableMapping.Map;
 
   IterableMapping.Map private tokenHoldersMap;
-  uint256 public lastProcessedIndex;
+  uint256 public lastIndex;
 
   mapping (address => bool) public excludedAddresses;
   mapping (address => uint256) public lastClaimTimes;
@@ -18,7 +18,6 @@ contract OdysseyRewards is RewardsTracker {
   uint256 public claimWaitingPeriod = 6 hours;
   uint256 public minimumBalance = 10_000_000; // must hold 10,000,000+ tokens
   uint256 public minimumBalanceExtended; // EXTENDED TO 10e18
-  address constant ZERO = 0x0000000000000000000000000000000000000000;
 
   event ClaimWaitingPeriodChanged(uint256 indexed from, uint256 indexed to);
   event ClaimedRewards(address indexed account, uint256 amount, bool indexed automatic);
@@ -31,35 +30,29 @@ contract OdysseyRewards is RewardsTracker {
     minimumBalanceExtended = minimumBalance * 1 ether;
   }
 
-  function getAccountInfo(address accoont) public view returns (address account, int256 index, int256 iterationsUntilProcessed, uint256 pendingRewards, uint256 totalRewards, uint256 lastClaimTime, uint256 nextClaimTime, uint256 secondsUntilAutoClaimAvailable) {
-    account = accoont;
-    index = tokenHoldersMap.getIndexOfKey(account);
-    iterationsUntilProcessed = -1;
-    if (index >= 0) {
-      if (uint256(index) > lastProcessedIndex) {
-        iterationsUntilProcessed = index.sub(int256(lastProcessedIndex));
-      } else {
-        uint256 processesUntilEndOfArray = (tokenHoldersMap.keys.length > lastProcessedIndex) ? tokenHoldersMap.keys.length.sub(lastProcessedIndex) : 0;
-        iterationsUntilProcessed = index.add(int256(processesUntilEndOfArray));
-      }
-    }
-
-    pendingRewards = getPending(account);
-    totalRewards = getAccumulated(account);
-    lastClaimTime = lastClaimTimes[account];
-    nextClaimTime = (lastClaimTime > 0) ? lastClaimTime.add(claimWaitingPeriod) : 0;
-    secondsUntilAutoClaimAvailable = (nextClaimTime > block.timestamp) ? nextClaimTime.sub(block.timestamp) : 0;
-  }
-
-  function getAccountInfoAtIndex(uint256 index) external view returns (address, int256, int256, uint256, uint256, uint256, uint256, uint256) {
-    if (index >= tokenHoldersMap.size()) return (ZERO, -1, -1, 0, 0, 0, 0, 0);
-
-    address account = tokenHoldersMap.getKeyAtIndex(index);
-    return getAccountInfo(account);
-  }
-
   function getHolderCount() external view returns(uint256) {
     return tokenHoldersMap.keys.length;
+  }
+
+  function getSettings() public view returns (uint256 rewardsDistributed, uint256 minBalance, uint256 claimWaitPeriodSeconds, uint256 holderCount, uint256 nextIndex) {
+    rewardsDistributed = totalDistributed;
+    minBalance = minimumBalance;
+    claimWaitPeriodSeconds = claimWaitingPeriod;
+    holderCount = tokenHoldersMap.keys.length;
+    nextIndex = lastIndex;
+  }
+
+  function getReport(address account) public view returns (bool accountExcluded, uint256 accountIndex, uint256 nextIndex, uint256 trackedBalance, uint256 totalRewards, uint256 claimedRewards, uint256 pendingRewards, uint256 lastClaimTime, uint256 nextClaimTime, uint256 secondsRemaining) {
+    accountExcluded = excludedAddresses[account];
+    accountIndex = accountExcluded ? 0 : tokenHoldersMap.getIndexOfKey(account).toUint256Safe();
+    nextIndex = accountExcluded ? 0 : lastIndex;
+    trackedBalance = accountExcluded ? 0 : balanceOf[account];
+    totalRewards = accountExcluded ? 0 : getAccumulated(account);
+    claimedRewards = accountExcluded ? 0 : withdrawnRewards[account];
+    pendingRewards = accountExcluded ? 0 : totalRewards - claimedRewards;
+    lastClaimTime = accountExcluded ? 0 : lastClaimTimes[account];
+    nextClaimTime = accountExcluded ? 0 : (lastClaimTime > 0) ? lastClaimTime.add(claimWaitingPeriod) : 0;
+    secondsRemaining = accountExcluded ? 0 : (nextClaimTime > block.timestamp) ? nextClaimTime.sub(block.timestamp) : 0;
   }
 
   function processClaim(address payable account, bool automatic) public onlyOwner returns (bool) {
@@ -77,16 +70,16 @@ contract OdysseyRewards is RewardsTracker {
     uint256 numberOfTokenHolders = tokenHoldersMap.keys.length;
     if (numberOfTokenHolders == 0) return;
 
-    uint256 _lastProcessedIndex = lastProcessedIndex;
+    uint256 pos = lastIndex;
     uint256 gasUsed = 0;
     uint256 gasLeft = gasleft();
     uint256 iterations = 0;
     uint256 claims = 0;
 
     while (gasUsed < gas && iterations < numberOfTokenHolders) {
-      _lastProcessedIndex++;
-      if (_lastProcessedIndex >= tokenHoldersMap.keys.length) _lastProcessedIndex = 0;
-      address account = tokenHoldersMap.keys[_lastProcessedIndex];
+      pos++;
+      if (pos >= tokenHoldersMap.keys.length) pos = 0;
+      address account = tokenHoldersMap.keys[pos];
       if (canAutoClaim(lastClaimTimes[account]) && processClaim(payable(account), true)) claims++;
       iterations++;
       uint256 newGasLeft = gasleft();
@@ -94,9 +87,9 @@ contract OdysseyRewards is RewardsTracker {
       gasLeft = newGasLeft;
     }
 
-    lastProcessedIndex = _lastProcessedIndex;
+    lastIndex = pos;
 
-    emit ClaimsProcessed(iterations, claims, lastProcessedIndex, gasUsed);
+    emit ClaimsProcessed(iterations, claims, lastIndex, gasUsed);
   }
 
   function setBalance(address payable account, uint256 newBalance) external onlyOwner {

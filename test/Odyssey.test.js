@@ -21,9 +21,9 @@ const defaults = {
   symbol: '$ODSY',
   decimals: 18,
   totalSupply: 50_000_000_000,
-  maxWallet: 500_000_000,
-  maxSell: 50_000_000,
-  swapThreshold: 500_000
+  maxWallet: 5_000_000_000,
+  maxSell: 500_000_000,
+  swapThreshold: 100_000_000
 };
 
 function toWei(count) {
@@ -94,7 +94,7 @@ contract('Odyssey', function (accounts) {
     assert.isTrue(await contract.isExcludedFromFees(wallets.project), 'Project Wallet is incorrect');
 
     console.log('Checking project wallet cannot be set to existing value');
-    await expectRevert(contract.setProjectWallet(wallets.project, { from: owner }), 'ODSY: Value already set');
+    await expectRevert(contract.setProjectWallet(wallets.project, { from: owner }), 'Value unchanged');
 
     console.log('Checking owner can change project wallet');
     transaction = await contract.setProjectWallet(holder1, { from: owner });
@@ -115,7 +115,7 @@ contract('Odyssey', function (accounts) {
     assert.isTrue(await contract.isExcludedFromFees(wallets.liquidity), 'Liquidity Wallet is incorrect');
 
     console.log('Checking liquidity wallet cannot be set to existing value');
-    await expectRevert(contract.setLiquidityWallet(wallets.liquidity, { from: owner }), 'ODSY: Value already set');
+    await expectRevert(contract.setLiquidityWallet(wallets.liquidity, { from: owner }), 'Value unchanged');
 
     console.log('Checking owner can change liquidity wallet');
     transaction = await contract.setLiquidityWallet(holder1, { from: owner });

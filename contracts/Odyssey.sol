@@ -36,9 +36,9 @@ contract Odyssey is ERC20, Ownable {
   uint16 public feeLiquidity = 4;
   uint256 public gasLimit = 300_000; // GAS FOR REWARDS PROCESSING
 
-  uint256 public maxWalletLimit = FINAL_SUPPLY.div(100); // MAX PER WALLET: 500_000_000 / 1%
-  uint256 public maxSellAmount =  FINAL_SUPPLY.div(1_000); // MAX PER SELL: 50_000_000 / 0.1%
-  uint256 public swapThreshold = FINAL_SUPPLY.div(10_000); // MAX CONTRACT SELL: 5_000_000 / 0.01%
+  uint256 public maxWalletLimit = FINAL_SUPPLY.div(10); // MAX PER WALLET: 5_000_000_000 / 10%
+  uint256 public maxSellAmount =  FINAL_SUPPLY.div(100); // MAX PER SELL: 500_000_000 / 1%
+  uint256 public swapThreshold = maxSellAmount.div(5); // CONTRACT SWAPS TO BSD: 100_000_000
 
   // MAPPINGS
   mapping (address => bool) public autoMarketMakers; // Any transfer to these addresses are likely sells
@@ -90,7 +90,7 @@ contract Odyssey is ERC20, Ownable {
   }
 
   function excludeFromFees(address account, bool exclude) external onlyOwner {
-    require(excludedFromFees[account] != exclude, "ODSY: Value already set");
+    require(excludedFromFees[account] != exclude, "Value unchanged");
 
     excludedFromFees[account] = exclude;
     emit ExcludedFromFees(account, exclude);
@@ -105,21 +105,22 @@ contract Odyssey is ERC20, Ownable {
   }
 
   function setAutomatedMarketMakerPair(address pair, bool value) external onlyOwner {
-    require(pair != uniswapV2Pair, "ODSY: The primary swap pair cannot be modified");
-
-    setMarketMakerPair(pair, value);
+    require(pair != uniswapV2Pair, "Value invalid");
+    require(autoMarketMakers[pair] != value, "Value unchanged");
+    autoMarketMakers[pair] = value;
+    odysseyRewards.setExcludedAddress(pair, value);
     emit SetAutomatedMarketMakerPair(pair, value);
   }
 
   function setGasForProcessing(uint256 gas) external onlyOwner {
-    require(gas >= 250_000 && gas <= 500_000, "ODSY: gasLimit must be between 250,000 and 500,000");
-    require(gas != gasLimit, "ODSY: Value already set");
+    require(gas >= 250_000 && gas <= 500_000, "Value invalid");
+    require(gas != gasLimit, "Value unchanged");
     emit GasLimitChanged(gasLimit, gas);
     gasLimit = gas;
   }
 
   function setLiquidityWallet(address wallet) external onlyOwner {
-    require(wallet != liquidityWallet, "ODSY: Value already set");
+    require(wallet != liquidityWallet, "Value unchanged");
 
     address oldWallet = liquidityWallet;
     liquidityWallet = wallet;
@@ -143,7 +144,7 @@ contract Odyssey is ERC20, Ownable {
   }
 
   function setProjectWallet(address wallet) external onlyOwner {
-    require(wallet != projectWallet, "ODSY: Value already set");
+    require(wallet != projectWallet, "Value unchanged");
     address oldWallet = projectWallet;
     projectWallet = wallet;
     excludedFromFees[oldWallet] = false;
@@ -153,11 +154,11 @@ contract Odyssey is ERC20, Ownable {
 
   function setRewardsTracker(address newTracker) external onlyOwner {
     address oldTracker = address(odysseyRewards);
-    require(newTracker != oldTracker, "ODSY: Value already set");
+    require(newTracker != oldTracker, "Value unchanged");
 
     OdysseyRewards newRewardsTracker = OdysseyRewards(payable(newTracker));
 
-    require(newRewardsTracker.owner() == address(this), "ODSY: The new tracker must be owned by the Odyssey token contract");
+    require(newRewardsTracker.owner() == address(this), "Token must own tracker");
 
     odysseyRewards = newRewardsTracker;
     setDefaultRewardsExclusions();
@@ -167,44 +168,12 @@ contract Odyssey is ERC20, Ownable {
 
   // FUNCTIONS DELEGATED TO RewardsTracker
 
-  function getRewardsAccountInfo(address account) external view returns (address, int256, int256, uint256, uint256, uint256, uint256, uint256) {
-    return odysseyRewards.getAccountInfo(account);
+  function getRewardsSettings() external view returns (uint256 rewardsDistributed, uint256 minBalance, uint256 claimWaitPeriodSeconds, uint256 holderCount, uint256 nextIndex) {
+    return odysseyRewards.getSettings();
   }
 
-  function getRewardsAccountInfoAtIndex(uint256 index) external view returns (address, int256, int256, uint256, uint256, uint256, uint256, uint256) {
-    return odysseyRewards.getAccountInfoAtIndex(index);
-  }
-
-  function getRewardsBalanceOf(address account) external view returns (uint256) {
-    return odysseyRewards.balanceOf(account);
-  }
-
-  function getRewardsClaimWaitingPeriod() external view returns(uint256) {
-    return odysseyRewards.claimWaitingPeriod();
-  }
-
-  function getRewardsLastProcessedIndex() external view returns(uint256) {
-    return odysseyRewards.lastProcessedIndex();
-  }
-
-  function getRewardsMinimumBalance() external view returns(uint256) {
-    return odysseyRewards.minimumBalance();
-  }
-
-  function getRewardsHolderCount() external view returns(uint256) {
-    return odysseyRewards.getHolderCount();
-  }
-
-  function getRewardsPending(address account) external view returns(uint256) {
-    return odysseyRewards.getPending(account);
-  }
-
-  function getRewardsTotalDistributed() external view returns (uint256) {
-    return odysseyRewards.totalDistributed();
-  }
-
-  function isRewardsExcludedAccount(address account) external view returns(bool) {
-    return odysseyRewards.excludedAddresses(account);
+  function getRewardsReport(address account) external view returns (bool accountExcluded, uint256 accountIndex, uint256 nextIndex, uint256 trackedBalance, uint256 totalRewards, uint256 claimedRewards, uint256 pendingRewards, uint256 lastClaimTime, uint256 nextClaimTime, uint256 secondsRemaining) {
+    return odysseyRewards.getReport(account);
   }
 
   function processRewardsClaim() external returns(bool) {
@@ -224,26 +193,24 @@ contract Odyssey is ERC20, Ownable {
   }
 
   function setRewardsMinimumBalance(uint256 amount) external onlyOwner {
-    require(amount >= 10_000_000 && amount <= 100_000_000, "ODSY: RewardsMinimumBalance must be between 10 and 100 million tokens");
+    require(amount >= 10_000_000 && amount <= 100_000_000, "Value invalid");
 
     odysseyRewards.setMinimumBalance(amount);
   }
 
   function _transfer(address from, address to, uint256 amount) internal override {
-    require(from != address(0), "ODSY: transfer from the zero address");
-    require(to != address(0), "ODSY: transfer to the zero address");
-    require(amount > 0, "ODSY: transfer amount must be greater than zero");
-    // require(isPreSaleEnabled(), "ODSY: Presale is not active"); // NO ONE CAN TRADE UNTIL CONTRACT GOES LIVE
+    require(from != address(0) && to != address(0), "Invalid address");
+    require(amount > 0, "Value invalid");
 
     if (!isOpenToPublic && presaleWallets[from]) { // PRE-SALE WHITELIST - NO FEES, JUST TRANSFER AND UPDATE TRACKER BALANCES
       transferAndUpdateRewardsTracker(from, to, amount);
       return;
     }
 
-    require(isOpenToPublic, "ODSY: Trading is not open to the public");
+    require(isOpenToPublic, "Trading closed");
 
     if (!swapping) {
-      if (!autoMarketMakers[to]) require(balanceOf(to).add(amount) <= maxWalletLimit, "ODSY: Transfer would exceed max wallet limit.");
+      if (!autoMarketMakers[to]) require(balanceOf(to).add(amount) <= maxWalletLimit, "Wallet over limit");
 
       if (isTransfer(from, to)) { // NO FEES, JUST TRANSFER AND UPDATE TRACKER BALANCES
         transferAndUpdateRewardsTracker(from, to, amount);
@@ -255,7 +222,7 @@ contract Odyssey is ERC20, Ownable {
       if (feePayer) { // RENDER UNTO CAESAR THE THINGS THAT ARE CAESAR'S
         uint256 taxTotal = 0;
         if (isSell(from, to)) {
-          require(amount <= maxSellAmount, "ODSY: Transfer exceeds the max sell limit");
+          require(amount <= maxSellAmount, "Sell over limit");
           taxTotal = amount.mul(feeToSell).div(100);
           if (taxTotal > 0) {
             uint256 taxLiquidity = taxTotal.mul(feeLiquidity).div(feeToSell);
@@ -321,12 +288,6 @@ contract Odyssey is ERC20, Ownable {
     if (balanceOf(address(this)) > swapThreshold) swapAndAddLiquidity(swapThreshold);
     if (balanceOf(address(this)) > swapThreshold) swapAndSendToRewardsTracker(swapThreshold);
     if (balanceOf(address(this)) > swapThreshold) swapAndSendToProject(swapThreshold);
-  }
-
-  function setMarketMakerPair(address pair, bool active) private {
-    require(autoMarketMakers[pair] != active, "ODSY: Value already set");
-    autoMarketMakers[pair] = active;
-    odysseyRewards.setExcludedAddress(pair, active);
   }
 
   function setDefaultRewardsExclusions() private {
