@@ -11,33 +11,30 @@ contract RewardsTracker is Ownable {
   using SafeMathUint for uint256;
   using SafeMathInt for int256;
 
-  uint256 constant internal MAGNIFIER = 2**128;
-  uint256 internal magnifiedBalanceOf;
   uint256 public totalBalance = 0;
-  uint256 public totalDistributed;
-  string public name;
-  string public symbol;
+  uint256 public totalDistributed = 0;
+  uint256 internal magnifiedBalance;
+  uint256 constant internal MAGNIFIER = 2**128;
 
+  mapping(address => uint256) public balanceOf;
   mapping(address => int256) internal magnifiedCorrections;
   mapping(address => uint256) internal withdrawnRewards;
-  mapping (address => uint256) public balanceOf;
 
-  event FundsDistributed(address indexed from, uint256 amount);
-  event FundsReceived(address indexed from, uint amount);
-  event SetRewardToken(address indexed from, address indexed to);
+  event FundsDeposited(address indexed from, uint amount);
+  event FundsWithdrawn(address indexed account, uint amount);
 
-  constructor(string memory name_, string memory symbol_) {
-    name = name_;
-    symbol = symbol_;
-  }
+  constructor() { }
 
   receive() external payable {
-    emit FundsReceived(msg.sender, msg.value);
-    distributeFunds();
+    require(msg.value > 0, "No funds sent");
+    require(totalBalance > 0, "No balances tracked");
+
+    distributeFunds(msg.value);
+    emit FundsDeposited(msg.sender, msg.value);
   }
 
   function getAccumulated(address account) public view returns(uint256) {
-    return magnifiedBalanceOf.mul(balanceOf[account]).toInt256Safe().add(magnifiedCorrections[account]).toUint256Safe() / MAGNIFIER;
+    return magnifiedBalance.mul(balanceOf[account]).toInt256Safe().add(magnifiedCorrections[account]).toUint256Safe() / MAGNIFIER;
   }
 
   function getPending(address account) public view returns(uint256) {
@@ -48,9 +45,7 @@ contract RewardsTracker is Ownable {
     return withdrawnRewards[account];
   }
 
-  // PRIVATE
-
-  function changeBalance(address account, uint256 newBalance) internal {
+  function putBalance(address account, uint256 newBalance) public virtual onlyOwner {
     uint256 currentBalance = balanceOf[account];
     balanceOf[account] = newBalance;
     if (newBalance > currentBalance) {
@@ -64,33 +59,37 @@ contract RewardsTracker is Ownable {
     }
   }
 
-  function decreaseBalance(address account, uint256 value) internal {
-    magnifiedCorrections[account] = magnifiedCorrections[account].add((magnifiedBalanceOf.mul(value)).toInt256Safe());
+  function withdrawFunds(address payable account) public virtual {
+    uint256 amount = processWithdraw(account);
+    if (amount > 0) emit FundsWithdrawn(account, amount);
   }
 
-  function distributeFunds() internal {
-    require(totalBalance > 0);
-    uint256 amount = msg.value;
-    if (amount > 0) {
-      magnifiedBalanceOf = magnifiedBalanceOf.add((amount).mul(MAGNIFIER) / totalBalance);
+  // PRIVATE
+
+  function decreaseBalance(address account, uint256 amount) internal {
+    magnifiedCorrections[account] = magnifiedCorrections[account].add((magnifiedBalance.mul(amount)).toInt256Safe());
+  }
+
+  function distributeFunds(uint256 amount) internal {
+    if (totalBalance > 0 && amount > 0) {
+      magnifiedBalance = magnifiedBalance.add((amount).mul(MAGNIFIER) / totalBalance);
       totalDistributed = totalDistributed.add(amount);
-      emit FundsDistributed(msg.sender, amount);
     }
   }
 
-  function increaseBalance(address account, uint256 value) internal {
-    magnifiedCorrections[account] = magnifiedCorrections[account].sub((magnifiedBalanceOf.mul(value)).toInt256Safe());
+  function increaseBalance(address account, uint256 amount) internal {
+    magnifiedCorrections[account] = magnifiedCorrections[account].sub((magnifiedBalance.mul(amount)).toInt256Safe());
   }
 
-  function processWithdraw(address payable user) internal returns (uint256) {
-    uint256 rewards = getPending(user);
-    if (rewards <= 0) return 0;
-    withdrawnRewards[user] = withdrawnRewards[user].add(rewards);
-    (bool success,) = user.call{value: rewards, gas: 3000}("");
+  function processWithdraw(address payable account) internal returns (uint256) {
+    uint256 amount = getPending(account);
+    if (amount <= 0) return 0;
+    withdrawnRewards[account] = withdrawnRewards[account].add(amount);
+    (bool success,) = account.call{value: amount, gas: 3000}("");
     if (!success) {
-      withdrawnRewards[user] = withdrawnRewards[user].sub(rewards);
+      withdrawnRewards[account] = withdrawnRewards[account].sub(amount);
       return 0;
     }
-    return rewards;
+    return amount;
   }
 }

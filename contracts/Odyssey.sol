@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.11;
 
-import "./OdysseyRewards.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
-import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
-import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
-import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import './OdysseyRewards.sol';
+import '@openzeppelin/contracts/access/Ownable.sol';
+import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
+import '@openzeppelin/contracts/utils/math/SafeMath.sol';
+import '@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol';
+import '@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol';
+import '@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol';
 
 contract Odyssey is ERC20, Ownable {
   using SafeMath for uint256;
@@ -23,12 +23,12 @@ contract Odyssey is ERC20, Ownable {
   uint256 constant FINAL_SUPPLY =  50_000_000_000 ether; // 50B FINAL SUPPLY / NO MINTING
 
   bool public isOpenToPublic = false;
-  address public projectWallet;
-  address public liquidityWallet;
+  address payable public projectWallet;
+  address payable public liquidityAddress;
   uint256 public accumulatedRewards = 0;
   uint256 public accumulatedProject = 0;
   uint256 public accumulatedLiquidity = 0;
-  uint16 public feeLevel = 1;
+  uint16 public feeLevel = 0;
   uint16 public feeToBuy = 2;
   uint16 public feeToSell = 12;
   uint16 public feeRewards = 6;
@@ -38,31 +38,33 @@ contract Odyssey is ERC20, Ownable {
 
   uint256 public maxWalletLimit = FINAL_SUPPLY.div(10); // MAX PER WALLET: 5_000_000_000 / 10%
   uint256 public maxSellAmount =  FINAL_SUPPLY.div(100); // MAX PER SELL: 500_000_000 / 1%
-  uint256 public swapThreshold = maxSellAmount.div(5); // CONTRACT SWAPS TO BSD: 100_000_000
+  uint256 public swapThreshold = 16_000_000 ether; // CONTRACT SWAPS TO BSD: 16_000_000
 
   // MAPPINGS
   mapping (address => bool) public autoMarketMakers; // Any transfer to these addresses are likely sells
-  mapping (address => bool) private excludedFromFees; // exclude from all fees and maxes
-  mapping (address => bool) private presaleWallets; // can trade in PreSale
+  mapping (address => bool) public isFeeless; // exclude from all fees and maxes
+  mapping (address => bool) public isPresale; // can trade in PreSale
 
   // EVENTS
-  event ExcludedFromFees(address indexed account, bool isExcluded);
+  event IsFeelessChanged(address indexed account, bool excluded);
   event FeesChanged(uint256 marketCap, uint256 feeToBuy, uint256 feeToSell, uint256 feeRewards, uint256 feeProject, uint256 feeLiquidity);
   event FundsReceived(address indexed from, uint amount);
   event FundsSentToProject(uint256 amount);
   event FundsSentToRewards(uint256 amount);
-  event GasLimitChanged(uint256 indexed from, uint256 indexed to);
+  event GasLimitChanged(uint256 from, uint256 to);
   event LiquidityAdded(uint256 tokens, uint256 value);
   event LiquidityWalletChanged(address indexed from, address indexed to);
   event ProjectWalletChanged(address indexed from, address indexed to);
   event RewardsTrackerChanged(address indexed from, address indexed to);
-  event SetAutomatedMarketMakerPair(address indexed pair, bool indexed active);
+  event SetAutomatedMarketMakerPair(address indexed pair, bool active);
+
+  event MarketCapCalculated(uint256 price, uint256 marketCap, uint256 tokens, uint256 value);
 
   // INTERNAL VARS
   bool private swapping = false;
 
   // INITIALIZE CONTRACT
-  constructor() ERC20("Odyssey", "$ODSY") {
+  constructor() ERC20('Odyssey', '$ODSY') {
     // SETUP PANCAKESWAP
     IUniswapV2Router02 router = IUniswapV2Router02(ROUTER_PCSV2_MAINNET); // IMMUTABLES UNREADABLE IN CONSTRUCTOR SO USE TMP VAR
     address pair = IUniswapV2Factory(router.factory()).createPair(address(this), router.WETH()); // Create a uniswap pair for this new token
@@ -70,68 +72,75 @@ contract Odyssey is ERC20, Ownable {
     uniswapV2Pair = pair;
     autoMarketMakers[pair] = true;
 
-    liquidityWallet = address(owner());
-    projectWallet = 0xfB0f7207B2e682c8a7A6bdb2b2012a395a653584;
+    liquidityAddress = payable(address(owner()));
+    projectWallet = payable(0xfB0f7207B2e682c8a7A6bdb2b2012a395a653584);
 
-    presaleWallets[owner()] = true;
-    excludedFromFees[address(this)] = true;
-    excludedFromFees[projectWallet] = true;
-    excludedFromFees[liquidityWallet] = true;
+    isPresale[owner()] = true;
+    isFeeless[address(this)] = true;
+    isFeeless[projectWallet] = true;
+    isFeeless[liquidityAddress] = true;
 
-    odysseyRewards = new OdysseyRewards();
+    odysseyRewards = new OdysseyRewards('OdysseyRewards', 'ODSYRV1');
     setDefaultRewardsExclusions();
     changeFees(2, 6, 2, 4);
 
+    // _mint(address(this), FINAL_SUPPLY.div(2));
     _mint(address(owner()), FINAL_SUPPLY);
   }
 
-  receive() external payable onlyOwner {
+  // To receive ETH when swapping
+  receive() external payable {
     emit FundsReceived(msg.sender, msg.value);
   }
 
-  function excludeFromFees(address account, bool exclude) external onlyOwner {
-    require(excludedFromFees[account] != exclude, "Value unchanged");
-
-    excludedFromFees[account] = exclude;
-    emit ExcludedFromFees(account, exclude);
-  }
-
-  function isExcludedFromFees(address account) external view returns(bool) {
-    return excludedFromFees[account];
-  }
-
   function openToPublic() external onlyOwner { // ONCE LIVE YOU CANNOT GO BACK!!
+    require(address(this).balance > 0, "Must have bnb to pair for launch");
+    require(balanceOf(address(this)) > 0, "Must have tokens to pair for launch");
+
     isOpenToPublic = true;
+    addLiquidity(balanceOf(address(this)), address(this).balance);
+    setLiquidityAddress(address(DEAD));
+  }
+
+  function setFeeless(address account, bool on) external onlyOwner {
+    require(isFeeless[account]!=on, 'Value unchanged');
+
+    isFeeless[account] = on;
+    emit IsFeelessChanged(account, on);
+  }
+
+  function setPresale(address account, bool on) external onlyOwner { // NO EVENTS REQUIRED
+    isPresale[account] = on;
   }
 
   function setAutomatedMarketMakerPair(address pair, bool value) external onlyOwner {
-    require(pair != uniswapV2Pair, "Value invalid");
-    require(autoMarketMakers[pair] != value, "Value unchanged");
+    require(pair != uniswapV2Pair, 'Value invalid');
+    require(autoMarketMakers[pair] != value, 'Value unchanged');
     autoMarketMakers[pair] = value;
-    odysseyRewards.setExcludedAddress(pair, value);
+    odysseyRewards.setExcludedAddress(pair);
     emit SetAutomatedMarketMakerPair(pair, value);
   }
 
-  function setGasForProcessing(uint256 gas) external onlyOwner {
-    require(gas >= 250_000 && gas <= 500_000, "Value invalid");
-    require(gas != gasLimit, "Value unchanged");
+  function setGasLimit(uint256 gas) external onlyOwner {
+    require(gas >= 250_000 && gas <= 500_000, 'Value invalid');
+    require(gas != gasLimit, 'Value unchanged');
     emit GasLimitChanged(gasLimit, gas);
     gasLimit = gas;
   }
 
-  function setLiquidityWallet(address wallet) external onlyOwner {
-    require(wallet != liquidityWallet, "Value unchanged");
+  function setLiquidityAddress(address wallet) public onlyOwner {
+    require(wallet != liquidityAddress, 'Value unchanged');
 
-    address oldWallet = liquidityWallet;
-    liquidityWallet = wallet;
-    if (oldWallet != address(this)) excludedFromFees[oldWallet] = false;
-    excludedFromFees[wallet] = true;
+    address oldWallet = liquidityAddress;
+    liquidityAddress = payable(wallet);
+    if (oldWallet != address(this)) isFeeless[oldWallet] = false;
+    isFeeless[wallet] = true;
     emit LiquidityWalletChanged(oldWallet, wallet);
   }
 
   function setMarketCap(uint256 marketCap) external onlyOwner {
     uint16 level = feeLevelFromMarketCap(marketCap);
-    if (feeLevel == level) return;
+    require(feeLevel != level, 'Value unchanged');
 
     feeLevel = level;
     if (feeLevel == 1) changeFees(2, 6, 2, 4);
@@ -144,26 +153,26 @@ contract Odyssey is ERC20, Ownable {
   }
 
   function setProjectWallet(address wallet) external onlyOwner {
-    require(wallet != projectWallet, "Value unchanged");
+    require(wallet != projectWallet, 'Value unchanged');
+
     address oldWallet = projectWallet;
-    projectWallet = wallet;
-    excludedFromFees[oldWallet] = false;
-    excludedFromFees[wallet] = true;
+    projectWallet = payable(wallet);
+    isFeeless[oldWallet] = false;
+    isFeeless[wallet] = true;
     emit ProjectWalletChanged(oldWallet, projectWallet);
   }
 
-  function setRewardsTracker(address newTracker) external onlyOwner {
-    address oldTracker = address(odysseyRewards);
-    require(newTracker != oldTracker, "Value unchanged");
+  function setRewardsTracker(address newAddress) external onlyOwner {
+    require(newAddress != address(odysseyRewards), 'Value unchanged');
 
-    OdysseyRewards newRewardsTracker = OdysseyRewards(payable(newTracker));
+    OdysseyRewards newRewardsTracker = OdysseyRewards(payable(newAddress));
 
-    require(newRewardsTracker.owner() == address(this), "Token must own tracker");
+    require(newRewardsTracker.owner() == address(this), 'Token must own tracker');
+
+    emit RewardsTrackerChanged(address(odysseyRewards), newAddress);
 
     odysseyRewards = newRewardsTracker;
     setDefaultRewardsExclusions();
-
-    emit RewardsTrackerChanged(oldTracker, newTracker);
   }
 
   // FUNCTIONS DELEGATED TO RewardsTracker
@@ -176,53 +185,60 @@ contract Odyssey is ERC20, Ownable {
     return odysseyRewards.getReport(account);
   }
 
-  function processRewardsClaim() external returns(bool) {
-    return odysseyRewards.processClaim(payable(msg.sender), false);
+  function withdrawRewardsFunds() external {
+    odysseyRewards.withdrawFunds(payable(msg.sender));
   }
 
   function processRewardsClaims() external onlyOwner {
     try odysseyRewards.processClaims(gasLimit) {} catch {}
   }
 
-  function setRewardsClaimWaitingPeriod(uint256 waitSeconds) external onlyOwner {
-    odysseyRewards.setClaimWaitingPeriod(waitSeconds);
-  }
-
-  function setRewardsExcludedAccount(address account, bool exclude) external onlyOwner{
-    odysseyRewards.setExcludedAddress(account, exclude);
+  function setRewardsExcludedAddress(address account, bool exclude) external onlyOwner{
+    if (exclude) {
+      odysseyRewards.setExcludedAddress(account);
+    } else {
+      odysseyRewards.setIncludedAddress(account, balanceOf(account));
+    }
   }
 
   function setRewardsMinimumBalance(uint256 amount) external onlyOwner {
-    require(amount >= 10_000_000 && amount <= 100_000_000, "Value invalid");
+    require(amount >= 10_000_000 && amount <= 100_000_000, 'Value invalid');
 
     odysseyRewards.setMinimumBalance(amount);
   }
 
-  function _transfer(address from, address to, uint256 amount) internal override {
-    require(from != address(0) && to != address(0), "Invalid address");
-    require(amount > 0, "Value invalid");
+  function setRewardsWaitingPeriod(uint256 waitSeconds) external onlyOwner {
+    odysseyRewards.setWaitingPeriod(waitSeconds);
+  }
 
-    if (!isOpenToPublic && presaleWallets[from]) { // PRE-SALE WHITELIST - NO FEES, JUST TRANSFER AND UPDATE TRACKER BALANCES
+  function _transfer(address from, address to, uint256 amount) internal override {
+    require(from != address(0) && to != address(0), 'Invalid address');
+    require(amount > 0, 'Value invalid');
+    // if (!autoMarketMakers[to]) { // EOA TO EOA CANNOT EXCEED MAX
+    //   require(balanceOf(to).add(amount) <= maxWalletLimit, 'Wallet over limit');
+    // }
+
+    require(to==address(this) || autoMarketMakers[to] || balanceOf(to).add(amount) <= maxWalletLimit, 'Wallet over limit');
+
+    if (!isOpenToPublic && isPresale[from]) { // PRE-SALE WALLET - NO FEES, JUST TRANSFER AND UPDATE TRACKER BALANCES
       transferAndUpdateRewardsTracker(from, to, amount);
       return;
     }
 
-    require(isOpenToPublic, "Trading closed");
+    require(isOpenToPublic, 'Trading closed');
+
+    if (isTransfer(from, to)) { // NOT TO DEX, NO FEES, JUST TRANSFER AND UPDATE TRACKER BALANCES
+      transferAndUpdateRewardsTracker(from, to, amount);
+      try odysseyRewards.processClaims(gasLimit) {} catch {}
+      return; // NO TAXES SO SKIP ACCUMULATOR CHECKS
+    }
 
     if (!swapping) {
-      if (!autoMarketMakers[to]) require(balanceOf(to).add(amount) <= maxWalletLimit, "Wallet over limit");
-
-      if (isTransfer(from, to)) { // NO FEES, JUST TRANSFER AND UPDATE TRACKER BALANCES
-        transferAndUpdateRewardsTracker(from, to, amount);
-        try odysseyRewards.processClaims(gasLimit) {} catch {}
-        return; // NO TAXES SO SKIP ACCUMULATOR CHECKS
-      }
-
-      bool feePayer = !excludedFromFees[from] && !excludedFromFees[to];
+      bool feePayer = !isFeeless[from] && !isFeeless[to];
       if (feePayer) { // RENDER UNTO CAESAR THE THINGS THAT ARE CAESAR'S
         uint256 taxTotal = 0;
         if (isSell(from, to)) {
-          require(amount <= maxSellAmount, "Sell over limit");
+          require(amount <= maxSellAmount, 'Sell over limit');
           taxTotal = amount.mul(feeToSell).div(100);
           if (taxTotal > 0) {
             uint256 taxLiquidity = taxTotal.mul(feeLiquidity).div(feeToSell);
@@ -242,7 +258,7 @@ contract Odyssey is ERC20, Ownable {
         }
       }
 
-      if (!autoMarketMakers[from] && from!=liquidityWallet && to!=liquidityWallet) {
+      if (!autoMarketMakers[from] && from!=liquidityAddress && to!=liquidityAddress) {
         swapping = true;
         processAccumulatedTokens();
         swapping = false;
@@ -258,6 +274,11 @@ contract Odyssey is ERC20, Ownable {
 
   // PRIVATE - ONLY CAN BE USED BY THIS CONTRACT
 
+  function addLiquidity(uint256 tokenAmount, uint256 ethAmount) private {
+    _approve(address(this), address(uniswapV2Router), tokenAmount);
+    uniswapV2Router.addLiquidityETH{value: ethAmount}(address(this), tokenAmount, 0, 0, liquidityAddress, block.timestamp);
+  }
+
   function changeFees(uint16 buy, uint16 rewards, uint16 project, uint16 liquidity) private {
     (feeToBuy, feeRewards, feeProject, feeLiquidity) = (buy, rewards, project, liquidity);
     feeToSell = feeRewards + feeProject + feeLiquidity;
@@ -272,56 +293,47 @@ contract Odyssey is ERC20, Ownable {
     return 6;
   }
 
-  // function isBuy(address from, address to) private view returns (bool) {
-  //   return autoMarketMakers[from] && to != address(uniswapV2Router);
-  // }
-
   function isSell(address from, address to) private view returns (bool) {
     return autoMarketMakers[to] && from != address(uniswapV2Router);
   }
 
   function isTransfer(address from, address to) private view returns (bool) {
-    return (to != address(uniswapV2Router) && from != address(uniswapV2Router));
+    return !autoMarketMakers[to] && !autoMarketMakers[from];
   }
 
   function processAccumulatedTokens() private {
-    if (balanceOf(address(this)) > swapThreshold) swapAndAddLiquidity(swapThreshold);
-    if (balanceOf(address(this)) > swapThreshold) swapAndSendToRewardsTracker(swapThreshold);
-    if (balanceOf(address(this)) > swapThreshold) swapAndSendToProject(swapThreshold);
+    if (balanceOf(address(this)) >= swapThreshold) swapAndAddLiquidity(swapThreshold);
+    if (balanceOf(address(this)) >= swapThreshold) swapAndSendToRewardsTracker(swapThreshold);
+    if (balanceOf(address(this)) >= swapThreshold) swapAndSendToProject(swapThreshold);
   }
 
   function setDefaultRewardsExclusions() private {
-    odysseyRewards.setExcludedAddress(owner(), true);
-    odysseyRewards.setExcludedAddress(uniswapV2Pair, true);
-    odysseyRewards.setExcludedAddress(address(this), true);
-    odysseyRewards.setExcludedAddress(address(uniswapV2Router), true);
-    odysseyRewards.setExcludedAddress(projectWallet, true);
-    odysseyRewards.setExcludedAddress(DEAD, true);
+    odysseyRewards.setExcludedAddress(owner());
+    odysseyRewards.setExcludedAddress(uniswapV2Pair);
+    odysseyRewards.setExcludedAddress(address(this));
+    odysseyRewards.setExcludedAddress(address(uniswapV2Router));
+    odysseyRewards.setExcludedAddress(projectWallet);
+    odysseyRewards.setExcludedAddress(DEAD);
   }
 
   function swapAndAddLiquidity(uint256 tokens) private {
     if (accumulatedLiquidity < tokens) return; // NOT YET
 
     accumulatedLiquidity -= tokens;
-    uint256 currentETH = address(this).balance;
     uint256 swapHalf = tokens.div(2);
     uint256 liquidHalf = tokens.sub(swapHalf);
-    swapTokensForETH(swapHalf);
-    uint256 swappedETH = address(this).balance.sub(currentETH);
-    _approve(address(this), address(uniswapV2Router), liquidHalf);
-    uniswapV2Router.addLiquidityETH{value: swappedETH}(address(this), liquidHalf, 0, 0, liquidityWallet, block.timestamp);
-    emit LiquidityAdded(liquidHalf, swappedETH);
+    uint256 liquidETH = swapTokensForETH(swapHalf);
+    addLiquidity(liquidHalf, liquidETH);
+    emit LiquidityAdded(liquidHalf, liquidETH);
   }
 
   function swapAndSendToRewardsTracker(uint256 tokens) private {
     if (accumulatedRewards < tokens) return; // NOT YET
 
     accumulatedRewards -= tokens;
-    uint256 currentETH = address(this).balance;
-    swapTokensForETH(tokens);
-    uint256 swappedETH = address(this).balance.sub(currentETH);
+    uint256 swappedETH = swapTokensForETH(tokens);
     if (swappedETH > 0) {
-      (bool success,) = address(odysseyRewards).call{value: swappedETH}("");
+      (bool success,) = address(odysseyRewards).call{value: swappedETH}('');
       if (success) emit FundsSentToRewards(swappedETH);
     }
   }
@@ -330,20 +342,28 @@ contract Odyssey is ERC20, Ownable {
     if (accumulatedProject < tokens) return; // NOT YET
 
     accumulatedProject -= tokens;
-    swapTokensForETH(tokens);
-    uint256 currentETH = address(this).balance; // PROJECT SWEEPS UP ANY LINGERING FUNDS
-    if (currentETH > 0) {
-      (bool success,) = address(projectWallet).call{value: currentETH}("");
-      if (success) emit FundsSentToProject(currentETH);
+    uint256 swappedETH = swapTokensForETH(tokens);
+    if (swappedETH > 0) {
+      (bool success,) = address(projectWallet).call{value: swappedETH}("");
+      if (success) emit FundsSentToProject(swappedETH);
     }
   }
 
-  function swapTokensForETH(uint256 tokens) private {
+  function swapTokensForETH(uint256 tokens) private returns(uint256) {
     address[] memory pair = new address[](2);
     pair[0] = address(this);
     pair[1] = uniswapV2Router.WETH();
     _approve(address(this), address(uniswapV2Router), tokens);
-    uniswapV2Router.swapExactTokensForETHSupportingFeeOnTransferTokens(tokens, 0, pair, address(this), block.timestamp);
+    uint256 currentETH = address(this).balance;
+    uniswapV2Router.swapExactTokensForETH(tokens, 0, pair, address(this), block.timestamp);
+    uint256 swappedETH = address(this).balance.sub(currentETH);
+
+    // TODO: MarketCap sets fees / max sell / swap threshold
+    uint256 price = (swappedETH.mul(10**9)).div(tokens * 2);
+    uint256 cap = (FINAL_SUPPLY.mul(price)).div(10**9);
+    emit MarketCapCalculated(price, cap, tokens, swappedETH);
+
+    return swappedETH;
   }
 
   function transferAndUpdateRewardsTracker(address from, address to, uint256 amount) private {

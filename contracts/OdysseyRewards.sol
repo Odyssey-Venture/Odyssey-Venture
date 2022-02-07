@@ -9,24 +9,29 @@ contract OdysseyRewards is RewardsTracker {
   using SafeMathInt for int256;
   using IterableMapping for IterableMapping.Map;
 
+  string public name;
+  string public symbol;
+
   IterableMapping.Map private tokenHoldersMap;
-  uint256 public lastIndex;
+  uint256 public lastIndex = 0;
 
-  mapping (address => bool) public excludedAddresses;
-  mapping (address => uint256) public lastClaimTimes;
+  mapping (address => bool) public isExcluded;
+  mapping (address => uint256) public lastClaimAt;
 
-  uint256 public claimWaitingPeriod = 6 hours;
   uint256 public minimumBalance = 10_000_000; // must hold 10,000,000+ tokens
   uint256 public minimumBalanceExtended; // EXTENDED TO 10e18
+  uint256 public waitingPeriod = 6 hours;
 
-  event ClaimWaitingPeriodChanged(uint256 indexed from, uint256 indexed to);
-  event ClaimedRewards(address indexed account, uint256 amount, bool indexed automatic);
-  event ExcludedFromRewards(address indexed account, bool isExcluded);
-  event MinimumBalanceChanged(uint256 indexed from, uint256 indexed to);
+  // event ClaimedRewards(address indexed account, uint256 amount, bool automatic);
   event ClaimsProcessed(uint256 iterations, uint256 claims, uint256 lastIndex, uint256 gasUsed);
+  event IsExcludedChanged(address indexed account, bool excluded);
+  event MinimumBalanceChanged(uint256 from, uint256 to);
+  event WaitingPeriodChanged(uint256 from, uint256 to);
 
-  constructor() RewardsTracker("OdysseyRewards", "ODSYRV1") {
-    excludedAddresses[address(this)] = true;
+  constructor(string memory name_, string memory symbol_) RewardsTracker() {
+    name = name_;
+    symbol = symbol_;
+    isExcluded[address(this)] = true;
     minimumBalanceExtended = minimumBalance * 1 ether;
   }
 
@@ -34,38 +39,29 @@ contract OdysseyRewards is RewardsTracker {
     return tokenHoldersMap.keys.length;
   }
 
-  function getSettings() public view returns (uint256 rewardsDistributed, uint256 minBalance, uint256 claimWaitPeriodSeconds, uint256 holderCount, uint256 nextIndex) {
+  function getSettings() public view returns (uint256 rewardsDistributed, uint256 minBalance, uint256 waitPeriodSeconds, uint256 holderCount, uint256 nextIndex) {
     rewardsDistributed = totalDistributed;
     minBalance = minimumBalance;
-    claimWaitPeriodSeconds = claimWaitingPeriod;
+    waitPeriodSeconds = waitingPeriod;
     holderCount = tokenHoldersMap.keys.length;
     nextIndex = lastIndex;
   }
 
   function getReport(address account) public view returns (bool accountExcluded, uint256 accountIndex, uint256 nextIndex, uint256 trackedBalance, uint256 totalRewards, uint256 claimedRewards, uint256 pendingRewards, uint256 lastClaimTime, uint256 nextClaimTime, uint256 secondsRemaining) {
-    accountExcluded = excludedAddresses[account];
+    accountExcluded = isExcluded[account];
     accountIndex = accountExcluded ? 0 : tokenHoldersMap.getIndexOfKey(account).toUint256Safe();
     nextIndex = accountExcluded ? 0 : lastIndex;
-    trackedBalance = accountExcluded ? 0 : balanceOf[account];
-    totalRewards = accountExcluded ? 0 : getAccumulated(account);
-    claimedRewards = accountExcluded ? 0 : withdrawnRewards[account];
-    pendingRewards = accountExcluded ? 0 : totalRewards - claimedRewards;
-    lastClaimTime = accountExcluded ? 0 : lastClaimTimes[account];
-    nextClaimTime = accountExcluded ? 0 : (lastClaimTime > 0) ? lastClaimTime.add(claimWaitingPeriod) : 0;
+    trackedBalance = balanceOf[account];
+    totalRewards = getAccumulated(account);
+    claimedRewards = withdrawnRewards[account];
+    pendingRewards = totalRewards.sub(claimedRewards);
+    lastClaimTime = accountExcluded ? 0 : lastClaimAt[account];
+    nextClaimTime = accountExcluded ? 0 : (lastClaimTime > 0) ? lastClaimTime.add(waitingPeriod) : 0;
     secondsRemaining = accountExcluded ? 0 : (nextClaimTime > block.timestamp) ? nextClaimTime.sub(block.timestamp) : 0;
   }
 
-  function processClaim(address payable account, bool automatic) public onlyOwner returns (bool) {
-    uint256 amount = processWithdraw(account);
-    if (amount > 0) {
-      lastClaimTimes[account] = block.timestamp;
-      emit ClaimedRewards(account, amount, automatic);
-    }
-    return (amount > 0);
-  }
-
   function processClaims(uint256 gas) external onlyOwner {
-    if (address(this).balance < 1 ether) return; // SAVE GAS, ONLY PROCESS AFTER CONTRACT HAS SOMETHING WORTH SPLITTING
+    if (address(this).balance < 1 ether) return; // SPLIT AT MIN 1 BSD
 
     uint256 numberOfTokenHolders = tokenHoldersMap.keys.length;
     if (numberOfTokenHolders == 0) return;
@@ -80,7 +76,7 @@ contract OdysseyRewards is RewardsTracker {
       pos++;
       if (pos >= tokenHoldersMap.keys.length) pos = 0;
       address account = tokenHoldersMap.keys[pos];
-      if (canAutoClaim(lastClaimTimes[account]) && processClaim(payable(account), true)) claims++;
+      if (pushFunds(payable(account))) claims++;
       iterations++;
       uint256 newGasLeft = gasleft();
       if (gasLeft > newGasLeft) gasUsed = gasUsed.add(gasLeft.sub(newGasLeft));
@@ -93,42 +89,78 @@ contract OdysseyRewards is RewardsTracker {
   }
 
   function setBalance(address payable account, uint256 newBalance) external onlyOwner {
-    if (excludedAddresses[account]) return;
+    if (isExcluded[account]) return;
+
     if (newBalance >= minimumBalanceExtended) { // * 10e18
-      changeBalance(account, newBalance);
+      putBalance(account, newBalance);
       tokenHoldersMap.set(account, newBalance);
+      // PUSH FUNDS TO ACCOUNT W/EVENT
+      if (getPending(account) <= 0) return;
+      lastClaimAt[account] = block.timestamp;
+      super.withdrawFunds(account);
     } else {
-      changeBalance(account, 0);
+      putBalance(account, 0);
       tokenHoldersMap.remove(account);
     }
-    processClaim(account, true);
   }
 
-  function setClaimWaitingPeriod(uint256 secondsBetweenClaims) external onlyOwner {
-    require(secondsBetweenClaims != claimWaitingPeriod, "OdysseyRewards: Value already set");
-    require(secondsBetweenClaims >= 1 hours && secondsBetweenClaims <= 1 days, "OdysseyRewards: claimWaitingPeriod must be between 1 and 24 hours");
-    emit ClaimWaitingPeriodChanged(claimWaitingPeriod, secondsBetweenClaims);
-    claimWaitingPeriod = secondsBetweenClaims;
+  function setExcludedAddress(address account) external onlyOwner {
+    require(isExcluded[account]==false, "Value unchanged");
+
+    isExcluded[account] = true;
+    putBalance(account, 0);
+    tokenHoldersMap.remove(account);
+    emit IsExcludedChanged(account, true);
   }
 
-  function setExcludedAddress(address account, bool exclude) external onlyOwner {
-    require(excludedAddresses[account] != exclude, "OdysseyRewards: Value already set");
+  // NEEDED TO REESTABLISH BALANCE WHEN INCLUDING SINCE EXCLUDING ZEROES IT OUT
+  function setIncludedAddress(address account, uint256 balance) external onlyOwner {
+    require(isExcluded[account]==true, "Value unchanged");
 
-    excludedAddresses[account] = exclude;
-    emit ExcludedFromRewards(account, exclude);
+    isExcluded[account] = false;
+    if (balance > 0) {
+      putBalance(account, balance);
+      tokenHoldersMap.set(account, balance);
+    }
+    emit IsExcludedChanged(account, false);
   }
 
   function setMinimumBalance(uint256 newBalance) external onlyOwner {
-    require(newBalance != minimumBalance, "OdysseyRewards: Value already set");
+    require(newBalance != minimumBalance, "Value unchanged");
+
     emit MinimumBalanceChanged(minimumBalance, newBalance);
     minimumBalance = newBalance;
     minimumBalanceExtended = minimumBalance * 1 ether; // EXTENDED TO 10e18 // * 10e18
   }
 
+  function setWaitingPeriod(uint256 inSeconds) external onlyOwner {
+    require(inSeconds != waitingPeriod, "Value unchanged");
+    require(inSeconds >= 1 hours && inSeconds <= 1 days, "Value invalid");
+
+    emit WaitingPeriodChanged(waitingPeriod, inSeconds);
+    waitingPeriod = inSeconds;
+  }
+
+  function withdrawFunds(address payable account) public override { // EMITS EVENT
+    require(canClaim(lastClaimAt[account]), "Wait time active");
+    require(getPending(account) > 0, "No funds");
+
+    lastClaimAt[account] = block.timestamp;
+    super.withdrawFunds(account);
+  }
+
   // PRIVATE
 
-  function canAutoClaim(uint256 lastClaimTime) private view returns (bool) {
+  function canClaim(uint256 lastClaimTime) private view returns (bool) {
     if (lastClaimTime > block.timestamp) return false;
-    return block.timestamp.sub(lastClaimTime) >= claimWaitingPeriod;
+    return block.timestamp.sub(lastClaimTime) >= waitingPeriod;
+  }
+
+  function pushFunds(address payable account) internal returns (bool) {
+    if (!canClaim(lastClaimAt[account]) || getPending(account)==0) return false;
+
+    super.withdrawFunds(account);
+    lastClaimAt[account] = block.timestamp;
+    return true;
   }
 }
