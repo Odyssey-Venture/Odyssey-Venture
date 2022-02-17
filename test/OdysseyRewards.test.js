@@ -11,10 +11,14 @@ const expect = chai.expect;
 const one_hour = 60 * 60;
 const six_hours = 6 * one_hour;
 const two_hours = 2 * one_hour;
-const one_day = 24 *one_hour;
+const one_day = 24 * one_hour;
 
 function toWei(count) {
   return `${count}000000000000000000`;
+}
+
+function fromWei(bn) {
+  return (bn / toWei(1)).toFixed(2);
 }
 
 function findEvent(transaction, event) {
@@ -86,19 +90,19 @@ contract('OdysseyRewards', function (accounts) {
   });
 
   it('allows holders to withdraw once per wait period', async function () {
-    await contract.putBalance(holder1, 1, { from: owner });
+    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
     await contract.send(toWei(1), { from: owner });
     transaction = await contract.withdrawFunds(holder1);
-    expectEvent(transaction, 'FundsWithdrawn', { account: holder1, amount: toWei(1) });
+    expectEvent(transaction, 'FundsWithdrawn', { account: holder1 });
     await contract.send(toWei(1), { from: owner });
     await expectRevert(contract.withdrawFunds(holder1), 'Wait time active');
     await timeTravel(six_hours);
     transaction = await contract.withdrawFunds(holder1);
-    expectEvent(transaction, 'FundsWithdrawn', { account: holder1, amount: toWei(1) });
+    expectEvent(transaction, 'FundsWithdrawn', { account: holder1 });
   });
 
   it('has a minimum balance to earn rewards', async function () {
-    assert.equal(await contract.minimumBalance(), 10_000_000);
+    assert.equal(await contract.minimumBalance(), toWei(10_000_000));
   });
 
   it('allows only owner to set minimum balance', async function () {
@@ -106,13 +110,13 @@ contract('OdysseyRewards', function (accounts) {
   });
 
   it('allows owner to set minimum balance', async function () {
-    transaction = await contract.setMinimumBalance(1_000_000, { from: owner });
-    expectEvent(transaction, 'MinimumBalanceChanged', { from: '10000000', to: '1000000' });
-    assert.equal(await contract.minimumBalance(), 1_000_000);
+    transaction = await contract.setMinimumBalance(toWei(5_000_000), { from: owner });
+    expectEvent(transaction, 'MinimumBalanceChanged', { from: toWei(10_000_000), to: toWei(5_000_000) });
+    assert.equal(await contract.minimumBalance(), toWei(5_000_000));
   });
 
   it('requires the value of MinimumBalance to change if updated', async function () {
-    await expectRevert(contract.setMinimumBalance(10_000_000, { from: owner }), 'Value unchanged');
+    await expectRevert(contract.setMinimumBalance(toWei(10_000_000), { from: owner }), 'Value unchanged');
   });
 
   it('allows only owner to exclude account from earning rewards', async function () {
@@ -125,8 +129,8 @@ contract('OdysseyRewards', function (accounts) {
 
   it('allows owner to exclude account from earning rewards', async function () {
     transaction = await contract.setExcludedAddress(holder1, { from: owner });
-    expectEvent(transaction, 'IsExcludedChanged', { account: holder1, excluded: true });
-    assert.isTrue(await contract.isExcluded(holder1));
+    expectEvent(transaction, 'ExcludedChanged', { account: holder1, excluded: true });
+    assert.notEqual((await contract.holder(holder1)).excluded, '0');
   });
 
   it('requires the value of ExcludedAddress to change if updated', async function () {
@@ -137,8 +141,8 @@ contract('OdysseyRewards', function (accounts) {
   it('allows owner to allow account to earn rewards', async function () {
     await contract.setExcludedAddress(holder1, { from: owner });
     transaction = await contract.setIncludedAddress(holder1, 0, { from: owner });
-    expectEvent(transaction, 'IsExcludedChanged', { account: holder1, excluded: false });
-    assert.isFalse(await contract.isExcluded(holder1));
+    expectEvent(transaction, 'ExcludedChanged', { account: holder1, excluded: false });
+    assert.equal((await contract.holder(holder1)).excluded, '0');
   });
 
   it('requires the value of IncludedAddress to change if updated', async function () {
@@ -146,9 +150,9 @@ contract('OdysseyRewards', function (accounts) {
   });
 
   it('zeroes out tracked balance when excluding an account', async function () {
-    await contract.setBalance(holder1, toWei(10_000_000), { from: owner });
+    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
     await contract.setExcludedAddress(holder1, { from: owner });
-    expect(await contract.balanceOf(holder1)).to.be.a.bignumber.equal(toWei(0));
+    expect(await contract.balanceOf(holder1)).to.be.a.bignumber.equal('0');
   });
 
   it('updates tracked balance when including an account', async function () {
@@ -158,78 +162,106 @@ contract('OdysseyRewards', function (accounts) {
   });
 
   it('allows only owner to set balance of an account', async function () {
-    await expectRevert(contract.setBalance(holder1, 10_000_000, { from: holder1 }), 'Ownable: caller is not the owner');
+    await expectRevert(contract.trackBuy(holder1, 10_000_000, { from: holder1 }), 'Ownable: caller is not the owner');
+    await expectRevert(contract.trackSell(holder1, 10_000_000, { from: holder1 }), 'Ownable: caller is not the owner');
   });
 
   it('allows owner to set balance of an account', async function () {
-    await contract.setBalance(holder1, toWei(10_000_000), { from: owner });
+    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
     expect(await contract.balanceOf(holder1)).to.be.a.bignumber.equal(toWei(10_000_000));
   });
 
   it('requires balance of an account to be above minimum', async function () {
-    await contract.setBalance(holder1, toWei(1_000), { from: owner });
+    await contract.trackBuy(holder1, toWei(1_000), { from: owner });
     expect(await contract.balanceOf(holder1)).to.be.a.bignumber.equal('0');
   });
 
   it('tracks accounts that are over minimum balance', async function () {
-    await contract.setBalance(holder1, toWei(10_000_000), { from: owner });
+    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
     assert.equal(await contract.getHolderCount(), 1);
   });
 
   it('does not track accounts under minimum balance', async function () {
-    await contract.setBalance(holder1, toWei(1_000), { from: owner });
+    await contract.trackBuy(holder1, toWei(1_000), { from: owner });
     assert.equal(await contract.getHolderCount(), 0);
   });
 
   it('stops tracking accounts that fall under minimum balance', async function () {
-    await contract.setBalance(holder1, toWei(10_000_000), { from: owner });
+    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
     assert.equal(await contract.getHolderCount(), 1);
-    await contract.setBalance(holder1, toWei(1_000), { from: owner });
+    await contract.trackSell(holder1, toWei(1_000), { from: owner });
     assert.equal(await contract.getHolderCount(), 0);
   });
 
+  it('sums totalsTracked and matches rewards balance', async function () {
+    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
+    await contract.trackBuy(holder2, toWei(20_000_000), { from: owner });
+    await contract.trackBuy(holder3, toWei(30_000_000), { from: owner });
+    assert.equal(await contract.totalTracked(), toWei(60_000_000));
+    assert.equal(await contract.totalBalance(), toWei(60_000_000));
+  });
+
+  it('totals amounts tracked and completely removes when under max', async function () {
+    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
+    await contract.trackBuy(holder2, toWei(10_000_000), { from: owner });
+    await contract.trackSell(holder1, toWei(5_000_000), { from: owner });
+    assert.equal(await contract.totalTracked(), toWei(10_000_000));
+  });
+
+  it('totals amounts tracked and correctly adjusts when balance changes', async function () {
+    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
+    assert.equal(await contract.totalTracked(), toWei(10_000_000));
+    await contract.trackBuy(holder1, toWei(15_000_000), { from: owner });
+    assert.equal(await contract.totalTracked(), toWei(15_000_000));
+    await contract.trackSell(holder1, toWei(5_000_000), { from: owner });
+    assert.equal(await contract.totalTracked(), '0');
+  });
+
   it('allows tracker settings to be read', async function () {
-    await contract.setBalance(holder1, toWei(10_000_000), { from: owner });
+    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
     await contract.send(toWei(2), { from: holder4 });
-    let data = await contract.getSettings();
-    assert.equal(data.rewardsDistributed,  toWei(2));
-    assert.equal(data.minBalance, 10_000_000);
-    assert.equal(data.waitPeriodSeconds, six_hours);
+    let data = await contract.getReport();
     assert.equal(data.holderCount, 1);
-    assert.equal(data.nextIndex, 0);
+    assert.isFalse(data.stakingOn);
+    assert.equal(data.totalTokensTracked, toWei(10_000_000));
+    assert.equal(data.totalTokensStaked, toWei(10_000_000));
+    assert.equal(data.totalRewardsPaid, toWei(2));
+    assert.equal(data.requiredBalance, toWei(10_000_000));
+    assert.equal(data.waitPeriodSeconds, six_hours);
   });
 
   it('allows holder to view an account status report', async function () {
-    await contract.setBalance(holder2, toWei(10_000_000), { from: owner });
-    await contract.setBalance(holder1, toWei(10_000_000), { from: owner });
+    await contract.trackBuy(holder2, toWei(10_000_000), { from: owner });
+    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
     await contract.send(toWei(2), { from: holder3 });
     await contract.withdrawFunds(holder1);
-    let data = await contract.getReport(holder1);
-    assert.isFalse(data.accountExcluded);
-    assert.equal(data.accountIndex, 1);
-    assert.equal(data.nextIndex, 0);
-    assert.equal(data.trackedBalance, toWei(10_000_000));
-    assert.equal(data.totalRewards.toString(), data.claimedRewards.toString());
-    assert.equal(data.pendingRewards, 0);
-    assert.equal(data.lastClaimTime.add(data.secondsRemaining).toString(), data.nextClaimTime.toString());
-    assert.equal(data.secondsRemaining, six_hours);
+    let data = await contract.getReportAccount(holder1);
+    assert.isFalse(data.excluded);
+    // console.log(data);
+    assert.equal(data.indexOf, '1');
+    assert.equal(data.tokens, toWei(10_000_000));
+    assert.equal(data.stakedPercent, '100');
+    assert.equal(data.stakedTokens, toWei(10_000_000));
+    assert.equal(data.rewardsClaimed.toString(), toWei(1)-1); // rounding
+    assert.equal(fromWei(data.rewardsEarned), fromWei(data.rewardsClaimed));
+    assert.equal(data.claimHours, '0');
+    assert.equal(data.stakedDays, '0');
   });
 
   it('allows excluded holder to view an account status report', async function () {
     await contract.putBalance(holder1, 1, { from: owner });
     await contract.send(toWei(1), { from: holder1 });
     await contract.setExcludedAddress(holder1, { from: owner });
-    let data = await contract.getReport(holder1);
-    assert.isTrue(data.accountExcluded);
-    assert.equal(data.accountIndex, 0);
-    assert.equal(data.nextIndex, 0);
-    assert.equal(data.trackedBalance, '0');
-    assert.equal(data.totalRewards.toString(), toWei(1));
-    assert.equal(data.pendingRewards.toString(), toWei(1));
-    assert.equal(data.claimedRewards, '0');
-    assert.equal(data.lastClaimTime, 0);
-    assert.equal(data.nextClaimTime, 0);
-    assert.equal(data.secondsRemaining, 0);
+    let data = await contract.getReportAccount(holder1);
+    // console.log(data);
+    assert.isTrue(data.excluded);
+    assert.equal(data.indexOf, '0');
+    assert.equal(data.tokens, '0');
+    assert.equal(data.stakedPercent, '0');
+    assert.equal(data.stakedTokens, '0');
+    assert.equal(data.rewardsEarned, toWei(1));
+    assert.equal(data.rewardsClaimed, '0');
+    assert.equal(data.stakedDays, '0');
   });
 
   it('allows holder withdraw earned rewards', async function () {
@@ -250,12 +282,12 @@ contract('OdysseyRewards', function (accounts) {
 
   it('properly bulk processes holders using index', async function () {
     await contract.setMinimumBalance(1, { from: owner });
-    await contract.setBalance(holder1, toWei(10), { from: owner });
-    await contract.setBalance(holder2, toWei(15), { from: owner });
-    await contract.setBalance(holder3, toWei(25), { from: owner });
-    await contract.setBalance(holder4, toWei(11), { from: owner });
-    await contract.setBalance(holder5, toWei(22), { from: owner });
-    await contract.setBalance(holder6, toWei(17), { from: owner });
+    await contract.trackBuy(holder1, toWei(10), { from: owner });
+    await contract.trackBuy(holder2, toWei(15), { from: owner });
+    await contract.trackBuy(holder3, toWei(25), { from: owner });
+    await contract.trackBuy(holder4, toWei(11), { from: owner });
+    await contract.trackBuy(holder5, toWei(22), { from: owner });
+    await contract.trackBuy(holder6, toWei(17), { from: owner });
 
     assert.equal(await contract.getHolderCount(), 6);
     assert.equal(await contract.totalBalance(), toWei(100));
@@ -287,19 +319,19 @@ contract('OdysseyRewards', function (accounts) {
       await web3.eth.getBalance(holder5)
     ];
 
-    after[0] = (after[0] - before[0]) / toWei(1);
-    after[1] = (after[1] - before[1]) / toWei(1);
-    after[2] = (after[2] - before[2]) / toWei(1);
-    after[3] = (after[3] - before[3]) / toWei(1);
+    after[0] = fromWei(after[0] - before[0]);
+    after[1] = fromWei(after[1] - before[1]);
+    after[2] = fromWei(after[2] - before[2]);
+    after[3] = fromWei(after[3] - before[3]);
 
-    expect(after[0]).to.be.equal(15);
+    assert.equal(after[0], 15);
     expectEvent(transaction, 'FundsWithdrawn', { account: holder2, amount: toWei(15) });
-    expect(after[1]).to.be.equal(25);
+    assert.equal(after[1], 25);
     expectEvent(transaction, 'FundsWithdrawn', { account: holder3, amount: toWei(25) });
-    expect(after[2]).to.be.equal(11);
+    assert.equal(after[2], 11);
     expectEvent(transaction, 'FundsWithdrawn', { account: holder4, amount: toWei(11) });
     if (iterations>3) {
-      expect(after[3]).to.be.equal(22);
+      assert.equal(after[3], 22);
       expectEvent(transaction, 'FundsWithdrawn', { account: holder5, amount: toWei(22) });
     }
   });

@@ -45,20 +45,8 @@ function MarketCap(transaction, name) {
   console.log(`${name}: sold ${tokens} for ${bnb} BNB. Contract calculates Market Cap  ${cap} USD / price ${price}`);
 }
 
-function logPriceLiquidityEvent(transaction) {
-  MarketCap(transaction, 'LiquidityAdded');
-}
-
-function PriceFromFunding(transaction, name) {
-  MarketCap(transaction, name);
-}
-
 function logPriceRewardsEvent(transaction) {
-  return PriceFromFunding(transaction, 'FundsSentToRewards');
-}
-
-function logPriceProjectEvent(transaction) {
-  return PriceFromFunding(transaction, 'FundsSentToProject');
+  return MarketCap(transaction, 'FundsSentToRewards');
 }
 
 contract('Odyssey', function (accounts) {
@@ -86,14 +74,14 @@ contract('Odyssey', function (accounts) {
   });
 
   it('project wallet', async function () {
-    await contract.send(toWei(500), { from: holder1 });
-    await contract.send(toWei(500), { from: holder2 });
-    await contract.send(toWei(500), { from: holder3 });
-    await contract.send(toWei(500), { from: holder4 });
-    await contract.send(toWei(500), { from: holder5 });
-    await contract.send(toWei(500), { from: holder6 });
-    await contract.send(toWei(500), { from: holder7 });
-    await contract.send(toWei(500), { from: holder8 });
+    await contract.send(toWei(250), { from: holder1 });
+    await contract.send(toWei(250), { from: holder2 });
+    await contract.send(toWei(250), { from: holder3 });
+    await contract.send(toWei(250), { from: holder4 });
+    await contract.send(toWei(250), { from: holder5 });
+    await contract.send(toWei(250), { from: holder6 });
+    await contract.send(toWei(250), { from: holder7 });
+    await contract.send(toWei(250), { from: holder8 });
     await contract.transfer(holder1, toWei(1_000_000_000), { from: owner });
     await contract.transfer(holder2, toWei(1_000_000_000), { from: owner });
     await contract.transfer(holder3, toWei(1_000_000_000), { from: owner });
@@ -102,108 +90,142 @@ contract('Odyssey', function (accounts) {
     await contract.transfer(holder6, toWei(1_000_000_000), { from: owner });
     await contract.transfer(holder7, toWei(1_000_000_000), { from: owner });
     await contract.transfer(holder8, toWei(1_000_000_000), { from: owner });
+    await contract.transfer(holder9, toWei(1_000_000_000), { from: owner });
 
     await contract.transfer(contract.address, toWei(25_000_000_000), { from: owner });
 
     let project_balance = await web3.eth.getBalance(addresses.project);
-    let data = await contract.getRewardsSettings();
-    assert.equal(fromWei(data.rewardsDistributed), 0); // NO REWARDS YET
+    let data = await contract.getRewardsReport();
+    assert.equal(fromWei(data.totalRewardsPaid), 0); // NO REWARDS YET
     assert.equal(fromWei(await contract.balanceOf(addresses.contract)), 25_000_000_000);
-    assert.equal(fromWei(await web3.eth.getBalance(addresses.contract)), 4_000);
-    console.log('Est Price ' + estPrice(4_000, 50_000_000_000), 'marketCap of', 4_000 * BNB_USD);
+    assert.equal(fromWei(await web3.eth.getBalance(addresses.contract)), 2_000);
+    console.log('Est Price ' + estPrice(2_000, 50_000_000_000), 'marketCap of', 2_000 * BNB_USD);
 
     console.log('Opening contract to public trading');
     transaction = await contract.openToPublic();
-    expectEvent(transaction, 'LiquidityWalletChanged', { from: owner, to: addresses.dead });
+    // expectEvent(transaction, 'LiquidityAddressChanged', { from: owner, to: addresses.dead });
     assert.equal(fromWei(await contract.balanceOf(addresses.contract)), 0);
     assert.equal(fromWei(await web3.eth.getBalance(addresses.contract)), 0);
 
 
     console.log('Selling 100_000_000 tokens');
     await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder1 });
-    assert.equal(fromWei(await contract.accumulatedRewards()),   6_000_000); // 6%
-    assert.equal(fromWei(await contract.accumulatedLiquidity()), 4_000_000); // 4%
-    assert.equal(fromWei(await contract.accumulatedProject()),   2_000_000); // 2%
+    assert.equal(fromWei(await contract.accumulatedLiquidity()), 5_000_000); // 5%
+    assert.equal(fromWei(await contract.accumulatedRewards()),   4_000_000); // 4%
+    assert.equal(fromWei(await contract.accumulatedProject()),   3_000_000); // 3%
 
 
     console.log('Selling 100_000_000 tokens');
     await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder2 });
-    assert.equal(fromWei(await contract.accumulatedRewards()),   12_000_000); // 6%
-    assert.equal(fromWei(await contract.accumulatedLiquidity()),  8_000_000); // 4%
-    assert.equal(fromWei(await contract.accumulatedProject()),    4_000_000); // 2%
+    assert.equal(fromWei(await contract.accumulatedLiquidity()), 10_000_000); // 5%
+    assert.equal(fromWei(await contract.accumulatedRewards()),    8_000_000); // 4%
+    assert.equal(fromWei(await contract.accumulatedProject()),   6_000_000); // 3%
+
+
+    console.log('Selling 100_000_000 tokens');
+    await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder3 });
+    assert.equal(fromWei(await contract.accumulatedLiquidity()), 15_000_000); // 5%
+    assert.equal(fromWei(await contract.accumulatedRewards()),   12_000_000); // 4%
+    assert.equal(fromWei(await contract.accumulatedProject()),    9_000_000); // 3%
+
+
+    console.log('Selling 100_000_000 tokens - Liquidity & Rewards over threshold / swap to LP');
+    transaction = await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder4 });
+    assert.equal(fromWei(await contract.accumulatedLiquidity()),  4_000_000); // 5% : 20m - 16m swap = 4m
+    assert.equal(fromWei(await contract.accumulatedRewards()),            0); // 4% : 16m - 16m swap = 0m
+    assert.equal(fromWei(await contract.accumulatedProject()),   12_000_000); // 3%
+    // TEST LIQUIDITY
+    expectEvent(transaction, 'Transfer', { from: addresses.contract, to: uniswapV2Pair, value: defaults.swapThreshold });
+    expectEvent(transaction, 'FundsReceived', { from:  addresses.router });
+    swappedBNB = findEvent(transaction, 'FundsReceived').args.amount;
+    expectEvent(transaction, 'FundsSentToLiquidity', { tokens: toWei(8_000_000), value: swappedBNB });
+    // TEST REWARDS
+    logPriceRewardsEvent(transaction);
+    swappedBNB = findEvent(transaction, 'FundsSentToRewards').args.amount;
+    console.log(`Verify ${fromWei(swappedBNB)} BNB from swap went to rewards`);
+    expectEvent.inTransaction(transaction.tx, tracker, 'FundsDeposited', { amount: swappedBNB });
+    expectEvent.inTransaction(transaction.tx, tracker, 'FundsWithdrawn', { account: holder2 });
+    expectEvent.inTransaction(transaction.tx, tracker, 'FundsWithdrawn', { account: holder7 });
+    expectEvent.inTransaction(transaction.tx, tracker, 'ClaimsProcessed', { claims: '6' });
+    assert.equal(fromWei((await contract.getRewardsReport()).totalRewardsPaid), fromWei(swappedBNB)); // NOW WE HAVE REWARDS
+
+
+    console.log('Selling 100_000_000 tokens');
+    await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder5 });
+    assert.equal(fromWei(await contract.accumulatedLiquidity()),  9_000_000); // 5%
+    assert.equal(fromWei(await contract.accumulatedRewards()),    4_000_000); // 4%
+    assert.equal(fromWei(await contract.accumulatedProject()),   15_000_000); // 3%
+
+
+    console.log('Selling 100_000_000 tokens - Project over threshold / swap to BNB');
+    transaction = await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder6 });
+    assert.equal(fromWei(await contract.accumulatedLiquidity()), 14_000_000); // 5%
+    assert.equal(fromWei(await contract.accumulatedRewards()),    8_000_000); // 4%
+    assert.equal(fromWei(await contract.accumulatedProject()),    2_000_000); // 3% : 18m - 16m
+    // TEST PROJECT
+    expectEvent(transaction, 'FundsReceived', { from:  addresses.router });
+    swappedBNB = findEvent(transaction, 'FundsReceived').args.amount;
+    console.log(`Verify ${fromWei(swappedBNB)} BNB from swap went to project wallet`);
+    expectEvent(transaction, 'FundsSentToProject', { value: swappedBNB });
+    let project_funds = await web3.eth.getBalance(addresses.project) - project_balance;
+    assert.equal(fromWei(swappedBNB), fromWei(project_funds));
+
+
+    console.log('Selling 100_000_000 tokens - Liquidity over threshold');
+    transaction = await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder7 });
+    assert.equal(fromWei(await contract.accumulatedLiquidity()),  3_000_000); // 5% : 19m - 16m
+    assert.equal(fromWei(await contract.accumulatedRewards()),   12_000_000); // 4%
+    assert.equal(fromWei(await contract.accumulatedProject()),    5_000_000); // 3% : 18m - 16m
+    // TEST LIQUIDITY
+    expectEvent(transaction, 'FundsReceived', { from:  addresses.router });
+    swappedBNB = findEvent(transaction, 'FundsReceived').args.amount;
+    expectEvent(transaction, 'FundsSentToLiquidity', { tokens: toWei(8_000_000), value: swappedBNB });
 
 
     console.log('Selling 100_000_000 tokens - Rewards over threshold / swap to BNB');
-    transaction = await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder3 });
-    expectEvent(transaction, 'Transfer', { from: addresses.contract, to: uniswapV2Pair, value: defaults.swapThreshold });
+    transaction = await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder8 });
+    assert.equal(fromWei(await contract.accumulatedLiquidity()),  8_000_000); // 5%
+    assert.equal(fromWei(await contract.accumulatedRewards()),            0); // 4% : 16m - 16m
+    assert.equal(fromWei(await contract.accumulatedProject()),    8_000_000); // 3%
+    // TEST REWARDS
+    logPriceRewardsEvent(transaction);
     expectEvent(transaction, 'FundsReceived', { from:  addresses.router });
     swappedBNB = findEvent(transaction, 'FundsReceived').args.amount;
     console.log(`Verify ${fromWei(swappedBNB)} BNB from swap went to rewards`);
     expectEvent(transaction, 'FundsSentToRewards', { amount: swappedBNB });
     expectEvent.inTransaction(transaction.tx, tracker, 'FundsDeposited', { amount: swappedBNB });
-    expectEvent.inTransaction(transaction.tx, tracker, 'FundsWithdrawn', { account: holder2 });
-    expectEvent.inTransaction(transaction.tx, tracker, 'FundsWithdrawn', { account: holder7 });
-    expectEvent.inTransaction(transaction.tx, tracker, 'ClaimsProcessed', { iterations: '6' });
-    assert.equal(fromWei((await contract.getRewardsSettings()).rewardsDistributed), fromWei(swappedBNB)); // NOW WE HAVE REWARDS
-    assert.equal(fromWei(await contract.accumulatedRewards()),    2_000_000); // 18m ~ 16m swap = 2m
-    assert.equal(fromWei(await contract.accumulatedLiquidity()), 12_000_000); // +4%
-    assert.equal(fromWei(await contract.accumulatedProject()),    6_000_000); // +2%
-    logPriceRewardsEvent(transaction);
+    expectEvent.inTransaction(transaction.tx, tracker, 'ClaimsProcessed', { claims: '2' });
 
 
-    console.log('Selling 100_000_000 tokens - Liquidity over threshold / swap to LP');
-    transaction = await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder4 });
+    console.log('Selling 100_000_000 tokens');
+    transaction = await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder9 });
+    assert.equal(fromWei(await contract.accumulatedLiquidity()), 13_000_000); // 5%
+    assert.equal(fromWei(await contract.accumulatedRewards()),    4_000_000); // 4%
+    assert.equal(fromWei(await contract.accumulatedProject()),   11_000_000); // 3%
+
+
+    console.log('Selling 100_000_000 tokens - Liquidity over threshold');
+    transaction = await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder1 });
+    assert.equal(fromWei(await contract.accumulatedLiquidity()),  2_000_000); // 5% : 18m - 16m
+    assert.equal(fromWei(await contract.accumulatedRewards()),    8_000_000); // 4%
+    assert.equal(fromWei(await contract.accumulatedProject()),   14_000_000); // 3%
+    // TEST LIQUIDITY
     expectEvent(transaction, 'FundsReceived', { from:  addresses.router });
     swappedBNB = findEvent(transaction, 'FundsReceived').args.amount;
-    expectEvent(transaction, 'LiquidityAdded', { tokens: toWei(8_000_000), value: swappedBNB });
-    assert.equal(fromWei(await contract.accumulatedRewards()),    8_000_000); // 6%
-    assert.equal(fromWei(await contract.accumulatedLiquidity()),          0); // +4% ~ 16m - 16m swap = 0
-    assert.equal(fromWei(await contract.accumulatedProject()),    8_000_000); // +2%
-    logPriceLiquidityEvent(transaction);
+    expectEvent(transaction, 'FundsSentToLiquidity', { tokens: toWei(8_000_000), value: swappedBNB });
 
 
-    console.log('Selling 100_000_000 tokens');
-    transaction = await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder5 });
-    assert.equal(fromWei(await contract.accumulatedRewards()),   14_000_000); // 6%
-    assert.equal(fromWei(await contract.accumulatedLiquidity()),  4_000_000); // +4%
-    assert.equal(fromWei(await contract.accumulatedProject()),   10_000_000); // +2%
-
-
-    console.log('Selling 100_000_000 tokens - Rewards over threshold / swap to BNB');
-    transaction = await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder6 });
+    console.log('Selling 100_000_000 tokens - Project over threshold');
+    transaction = await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder2 });
+    assert.equal(fromWei(await contract.accumulatedLiquidity()),  7_000_000); // 5%
+    assert.equal(fromWei(await contract.accumulatedRewards()),   12_000_000); // 4%
+    assert.equal(fromWei(await contract.accumulatedProject()),    1_000_000); // 3% : 17m - 16m
+    // TEST PROJECT
     expectEvent(transaction, 'FundsReceived', { from:  addresses.router });
-    expectEvent(transaction, 'FundsSentToRewards');
-    expectEvent.inTransaction(transaction.tx, tracker, 'FundsDeposited');
-    expectEvent.inTransaction(transaction.tx, tracker, 'ClaimsProcessed');
-    assert.equal(fromWei(await contract.accumulatedRewards()),    4_000_000); // 6% ~ 20m - 16m swap = 4
-    assert.equal(fromWei(await contract.accumulatedLiquidity()),  8_000_000); // +4%
-    assert.equal(fromWei(await contract.accumulatedProject()),   12_000_000); // +2%
-    logPriceRewardsEvent(transaction);
-
-
-    console.log('Selling 100_000_000 tokens');
-    transaction = await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder7 });
-    assert.equal(fromWei(await contract.accumulatedRewards()),   10_000_000); // 6%
-    assert.equal(fromWei(await contract.accumulatedLiquidity()), 12_000_000); // +4%
-    assert.equal(fromWei(await contract.accumulatedProject()),   14_000_000); // +2%
-
-
-    console.log('Selling 100_000_000 tokens - Liquid + Rewards + Project Funds');
-    transaction = await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder8 });
-    expectEvent(transaction, 'LiquidityAdded');
-    logPriceLiquidityEvent(transaction);
-    expectEvent(transaction, 'FundsSentToRewards');
-    logPriceRewardsEvent(transaction);
-    expectEvent(transaction, 'FundsSentToProject');
-    logPriceProjectEvent(transaction);
-
-    swappedBNB = findEvent(transaction, 'FundsSentToProject').args.amount;
+    swappedBNB = findEvent(transaction, 'FundsReceived').args.amount;
     console.log(`Verify ${fromWei(swappedBNB)} BNB from swap went to project wallet`);
-    let project_funds = await web3.eth.getBalance(addresses.project) - project_balance;
+    expectEvent(transaction, 'FundsSentToProject', { value: swappedBNB });
+    project_funds = await web3.eth.getBalance(addresses.project) - project_balance - project_funds;
     assert.equal(fromWei(swappedBNB), fromWei(project_funds));
-
-    assert.equal(fromWei(await contract.accumulatedRewards()),   0); // 6% ~ 16m - 16m swap = 0
-    assert.equal(fromWei(await contract.accumulatedLiquidity()), 0); // +4% ~ 16m - 16m swap = 0
-    assert.equal(fromWei(await contract.accumulatedProject()),   0); // +2% ~ 16m - 16m swap = 0
   });
 });

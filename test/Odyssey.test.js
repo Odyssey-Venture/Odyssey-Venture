@@ -63,6 +63,13 @@ contract('Odyssey', function (accounts) {
     assert.equal((await contract.decimals()), 18);
   });
 
+  it('allow owner to open contract to public', async function() {
+    await contract.send(toWei(100), { from: holder3 });
+    await contract.transfer(contract.address, toWei(25_000_000_000), { from: owner });
+    await contract.openToPublic({ from: owner });
+    assert.isTrue(await contract.isOpenToPublic());
+  });
+
   it('sets the correct total supply upon deployment', async function () {
     assert.equal(await contract.totalSupply(), toWei(defaults.totalSupply));
   });
@@ -75,20 +82,14 @@ contract('Odyssey', function (accounts) {
   it('only owner can open contract to public', async function() {
     await expectRevert(contract.openToPublic({ from: holder2 }), 'Ownable: caller is not the owner');
     assert.isFalse(await contract.isOpenToPublic());
+  });
+
+  it('contract must have bnb and tokens for initial liquidity', async function() {
     await expectRevert(contract.openToPublic({ from: owner }), 'Must have bnb to pair for launch');
-    await contract.send(toWei(1000), { from: holder3 });
-    await contract.transfer(contract.address, toWei(25_000_000_000), { from: owner });
-    await contract.openToPublic({ from: owner });
-    assert.isTrue(await contract.isOpenToPublic());
+    await contract.send(toWei(10), { from: holder3 });
+    await expectRevert(contract.openToPublic({ from: owner }), 'Must have tokens to pair for launch');
   });
 
-  it('has a max wallet limit', async function () {
-    assert.equal(await contract.maxWalletLimit(), toWei(defaults.maxWallet));
-  });
-
-  it('has a max sell limit', async function () {
-    assert.equal(await contract.maxSellAmount(), toWei(defaults.maxSell));
-  });
 
   it('has a threshold for swapping tokens to BSD', async function () {
     assert.equal(await contract.swapThreshold(), toWei(defaults.swapThreshold));
@@ -144,28 +145,6 @@ contract('Odyssey', function (accounts) {
     await expectRevert(contract.setProjectWallet(wallets.project, { from: owner }), 'Value unchanged');
   });
 
-  it('allows only owner to set liquidity wallet', async function () {
-    await expectRevert(contract.setLiquidityAddress(holder1, { from: holder1 }), 'Ownable: caller is not the owner');
-  });
-
-  it('allows owner to set liquidity wallet', async function () {
-    transaction = await contract.setLiquidityAddress(holder1, { from: owner });
-    expectEvent(transaction, 'LiquidityWalletChanged', { from: wallets.liquidity, to: holder1 });
-    assert.equal(await contract.liquidityAddress(), holder1);
-  });
-
-  it('exempts liquidity wallet from fees', async function () {
-    assert.isTrue(await contract.isFeeless(wallets.liquidity));
-    assert.isFalse(await contract.isFeeless(holder1));
-    await contract.setLiquidityAddress(holder1, { from: owner });
-    assert.isTrue(await contract.isFeeless(holder1));
-    assert.isFalse(await contract.isFeeless(wallets.liquidity));
-  });
-
-  it('requires the value of LiquidityWallet to change if updated', async function () {
-    await expectRevert(contract.setLiquidityAddress(wallets.liquidity, { from: owner }), 'Value unchanged');
-  });
-
   it('allows only owner to set gasLimit', async function () {
     await expectRevert(contract.setGasLimit(400_000, { from: holder1 }), 'Ownable: caller is not the owner');
   });
@@ -185,34 +164,8 @@ contract('Odyssey', function (accounts) {
     await expectRevert(contract.setGasLimit(300_000, { from: owner }), 'Value unchanged');
   });
 
-  it('allows only owner to set marketCap', async function () {
-    await expectRevert(contract.setMarketCap(400_000, { from: holder1 }), 'Ownable: caller is not the owner');
-  });
-
-  it('allows owner to set marketCap', async function () {
-    transaction = await contract.setMarketCap(3_000_000, { from: owner });
-    expectEvent(transaction, 'FeesChanged', {
-      marketCap: '3000000', feeToBuy: '2', feeRewards: '5', feeLiquidity: '3', feeProject: '2', feeToSell: '10'
-    });
-    assert.equal((await contract.feeLevel()).toNumber(), 2);
-  });
-
-  for (var idx=0; idx < tiers.length; idx++) {
-    let fee = tiers[idx];
-    fee.total = fee.rewards + fee.liquidity + fee.project;
-    it(`Checking fees when MC ${fee.marketcap}: Buy ${fee.buy} / Sell ${fee.total} [reward ${fee.rewards} market ${fee.project} liquid ${fee.liquidity}]`, async function () {
-      await contract.setMarketCap(fee.marketcap);
-      assert.equal((await contract.feeLevel()).toNumber(),     fee.level);
-      assert.equal((await contract.feeToBuy()).toNumber(),     fee.buy);
-      assert.equal((await contract.feeRewards()).toNumber(),   fee.rewards);
-      assert.equal((await contract.feeProject()).toNumber(),   fee.project);
-      assert.equal((await contract.feeLiquidity()).toNumber(), fee.liquidity);
-      assert.equal((await contract.feeToSell()).toNumber(),    fee.total);
-    });
-  }
-
   it('rejects transfers to zero address', async function() {
-    await expectRevert(contract.transfer(ZERO, 1, { from: owner }), 'Invalid address');
+    await expectRevert(contract.transfer(ZERO, 1, { from: owner }), 'Value invalid');
   });
 
   it('rejects transfers of 0 tokens', async function() {
@@ -241,44 +194,19 @@ contract('Odyssey', function (accounts) {
   it('does not enforce max wallet size transfers to AMM before trading open', async function() {
     assert.isFalse(await contract.isOpenToPublic());
     await contract.transfer(uniswapV2Pair, toWei(defaults.maxWallet+1), { from: owner });
-    console.log((await contract.balanceOf(uniswapV2Pair)).toString());
+    // console.log((await contract.balanceOf(uniswapV2Pair)).toString());
   });
 
-  // it('collects no fees when transferring EOA to EOA', async function() {
-  //   let totalSupply = await contract.totalSupply();
-  //   const amount = 10000;
-  //   const bnAmount = new BN(amount);
-  //   console.log('Checking transfer from wallet to wallet');
-  //   transaction = await contract.transfer(holder1, amount, { from: owner });
-  //   expectEvent(transaction, 'Transfer', { from: owner, to: holder1, value: bnAmount });
-  //   expect(await contract.balanceOf(owner)).to.be.a.bignumber.equal(totalSupply.sub(bnAmount));
-  //   expect(await contract.balanceOf(holder1)).to.be.a.bignumber.equal(bnAmount);
+  it('allows only owner to turn staking on', async function () {
+    await expectRevert(contract.setStaking(true, { from: holder1 }), 'Ownable: caller is not the owner');
+  });
 
-  //   transaction = await contract.transfer(holder2, amount, { from: holder1 });
-  //   expectEvent(transaction, 'Transfer', { from: holder1, to: holder2, value: bnAmount });
-  //   expect(await contract.balanceOf(holder1)).to.be.a.bignumber.equal('0');
-  //   expect(await contract.balanceOf(holder2)).to.be.a.bignumber.equal(bnAmount);
-  //   console.log('Checking that no fees were sent to Accumulators');
-  //   expect(await contract.accumulatedRewards()).to.be.a.bignumber.equal('0');
-  //   expect(await contract.accumulatedProject()).to.be.a.bignumber.equal('0');
-  //   expect(await contract.accumulatedLiquidity()).to.be.a.bignumber.equal('0');
-  //   expect(await contract.balanceOf(contract.address)).to.be.a.bignumber.equal('0');
-  // });
+  it('requires the value of IsStakingOn to change if updated', async function () {
+    await expectRevert(contract.setStaking(false, { from: owner }), 'Value unchanged');
+  });
 
-  // it('collects proper fees when transaction is a buy', async function() {
-    // let totalSupply = await contract.totalSupply();
-    // const amount = 10000;
-    // const bnAmount = new BN(amount);
-    // transaction = await contract.transfer(ROUTER, amount, { from: owner });
-    // console.log(transaction);
-    // expectEvent(transaction, 'Transfer', { from: owner, to: ROUTER, value: bnAmount });
-    // await contract.transfer(holder1, amount, { from: uniswapV2Pair });
-    // console.log((await contract.balanceOf(owner)).toString());
-    // console.log((await contract.balanceOf(uniswapV2Pair)).toString());
-    // console.log((await contract.balanceOf(holder1)).toString());
-    // console.log((await contract.balanceOf(wallets.project)).toString());
-    // console.log((await contract.balanceOf(wallets.liquidity)).toString());
-    // expect(await contract.balanceOf(owner)).to.be.a.bignumber.equal(totalSupply.sub(bnAmount));
-    // expect(await contract.balanceOf(uniswapV2Pair)).to.be.a.bignumber.equal(bnAmount);
-  // });
+  it('allows owner to toggle staking option', async function () {
+    await contract.setStaking(true, { from: owner });
+    assert.isTrue(await contract.isStakingOn());
+  });
 });
