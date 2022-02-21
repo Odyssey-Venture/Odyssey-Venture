@@ -12,61 +12,116 @@ contract OdysseyProject is RewardsTracker {
   string public name;
   string public symbol;
 
-  IterableMapping.Map private tokenHoldersMap;
+  uint256 public dividends = 10;
+  uint256 public funds = 0;
+
+  uint256 public constant APPROVAL_PERCENT = 50;
+
+  address public withdrawTo = address(0);
+  uint256 public withdrawExpires = 0;
+  uint256 public withdrawAmount = 0;
+
+  IterableMapping.Map private holdersMap;
   uint256 public lastIndex = 0;
 
-  struct Row { // PACKED MAX 8 VARS @ 32
+  struct Holder { // UP TO 8 PACKED VARS @ 32
     uint32 added;
-    uint32 bought;
     uint32 claimed;
-    uint32 excluded;
-    uint32 sold;
-    uint32 staked;
-    uint32 percent;
-    uint32 tbd;
+    uint32 shares;
+    uint32 approved;
   }
 
-  mapping (address => Row) public holder;
+  mapping (address => Holder) public holder;
 
   uint256 constant MINIMUMBALANCE = 1;
   uint256 public waitingPeriod = 1 hours;
-  uint256 public totalTracked = 0;
 
   event ClaimsProcessed(uint256 iterations, uint256 claims, uint256 lastIndex, uint256 gasUsed);
 
   constructor(string memory name_, string memory symbol_) RewardsTracker() {
     name = name_;
     symbol = symbol_;
-    holder[address(this)].excluded = stamp();
   }
 
-  function getHolderCount() external view returns(uint256) {
-    return tokenHoldersMap.keys.length;
+  function approveWithdraw() external {
+    require(balanceOf[msg.sender] > 0, "No shares");
+    require(withdrawTo!=address(0), "No pending request");
+    require(holder[msg.sender].approved==0, "Already approved");
+
+    if (withdrawExpired()) return withdrawReset();
+
+    holder[msg.sender].approved = stamp();
+
+    if (withdrawApproved()) processWithdrawRequest();
   }
 
-  function getReport() public view returns (uint256 holderCount,  uint256 totalBalance, uint256 totalRewardsPaid) {
-    holderCount = tokenHoldersMap.keys.length;
-    totalBalance = totalBalance;
-    totalRewardsPaid = totalDistributed;
+  function requestWithdraw(uint256 amount) external {
+    require(balanceOf[msg.sender] > 0, "No shares");
+    require(funds > amount, "Overdraft");
+    require(withdrawExpires < block.timestamp, "Pending request active");
+
+    withdrawReset();
+
+    withdrawTo = msg.sender;
+    withdrawAmount = amount;
+    withdrawExpires = block.timestamp + 6 hours;
+    holder[msg.sender].approved = stamp();
+
+    // emit fundsrequest
   }
 
-  function getReportAccount(address account) public view returns (uint256 tokens, uint256 rewardsEarned, uint256 rewardsClaimed) {
-    bool excluded = (holder[account].excluded > 0);
-    tokens = excluded ? 0 : balanceOf[account];
-    rewardsEarned = getAccumulated(account);
-    rewardsClaimed = withdrawnRewards[account];
+  function unapproveWithdraw() external {
+    require(balanceOf[msg.sender] > 0, "No shares");
+    require(holder[msg.sender].approved > 0, "Not approved");
+
+    if (withdrawExpired() || msg.sender==withdrawTo) return withdrawReset();
+
+    holder[msg.sender].approved = 0;
   }
 
-  function setWallet(address account, uint256 percent) external onlyOwner {
-    require(balanceOf[account]!=percent, 'Value unchanged');
-    require(totalBalance.add(percent)<=100, 'Value invalid');
-
-    setBalance(account, percent);
+  function getReport() public view returns (uint256 holderCount, uint256 totalShares, uint256 totalDividends) {
+    holderCount = holdersMap.keys.length;
+    totalShares = totalBalance;
+    totalDividends = totalDistributed;
   }
 
-  function processClaims(uint256 gas) external onlyOwner {
-    uint256 numberOfTokenHolders = tokenHoldersMap.keys.length;
-    if (numberOfTokenHolders == 0) return;
+  function getReportAccount(address account) public view returns (uint256 shares, uint256 dividendsEarned, uint256 dividendsClaimed) {
+    shares = balanceOf[account];
+    dividendsEarned = getAccumulated(account);
+    dividendsClaimed = withdrawnRewards[account];
+  }
+
+  function getReportAccountAt(uint256 index) public view returns (address account, uint256 shares, uint256 dividendsEarned, uint256 dividendsClaimed) {
+    require(index < holdersMap.keys.length, "Invalid value");
+
+    account = holdersMap.keys[index];
+    shares = balanceOf[account];
+    dividendsEarned = getAccumulated(account);
+    dividendsClaimed = withdrawnRewards[account];
+  }
+
+  function setHolders(address[] memory wallets, uint256[] memory amounts) external onlyOwner {
+    require(totalBalance==0, "Shares already set.");
+    require(wallets.length < 100, "100 wallets max");
+
+    uint256 sum = 0;
+    for (uint256 idx=0;idx<wallets.length;idx++) sum += amounts[idx];
+    require(sum==1000, "1000 shares required");
+    for (uint256 idx=0;idx<wallets.length;idx++) setBalance(wallets[idx], amounts[idx]);
+  }
+
+  function totalApproval() public view returns(uint256) {
+    uint256 sum = 0;
+    for (uint256 idx=0; idx<holdersMap.keys.length; idx++) {
+      address account = holdersMap.keys[idx];
+      if (holder[account].approved > 0) sum += balanceOf[holdersMap.keys[idx]];
+    }
+    return sum;
+  }
+
+  function processClaims(uint256 gas) external {
+    uint256 keyCount = holdersMap.keys.length;
+    if (keyCount == 0) return;
 
     uint256 pos = lastIndex;
     uint256 gasUsed = 0;
@@ -74,13 +129,11 @@ contract OdysseyProject is RewardsTracker {
     uint256 iterations = 0;
     uint256 claims = 0;
 
-    bool worthy = (address(this).balance > (1 ether / 100)); // ARE THERE ENOUGH FUNDS TO WARRANT ACTION
-
-    while (gasUsed < gas && iterations < numberOfTokenHolders) {
+    while (gasUsed < gas && iterations < keyCount) {
       pos++;
-      if (pos >= tokenHoldersMap.keys.length) pos = 0;
-      address account = tokenHoldersMap.keys[pos];
-      if (worthy && pushFunds(payable(account))) claims++;
+      if (pos >= holdersMap.keys.length) pos = 0;
+      address account = holdersMap.keys[pos];
+      if (pushFunds(payable(account))) claims++;
       iterations++;
       uint256 newGasLeft = gasleft();
       if (gasLeft > newGasLeft) gasUsed = gasUsed.add(gasLeft.sub(newGasLeft));
@@ -92,27 +145,11 @@ contract OdysseyProject is RewardsTracker {
     emit ClaimsProcessed(iterations, claims, lastIndex, gasUsed);
   }
 
-  function trackBuy(address payable account, uint256 newBalance) external onlyOwner {
-    if (holder[account].excluded > 0) return;
-
-    if (holder[account].added==0) holder[account].added = stamp();
-    holder[account].bought = stamp();
-    setBalance(account, newBalance);
-  }
-
-  function trackSell(address payable account, uint256 newBalance) external onlyOwner {
-    if (holder[account].excluded > 0) return;
-
-    holder[account].sold = stamp();
-    setBalance(account, newBalance);
-  }
-
-  function withdrawFunds(address payable account) public override onlyOwner { // EMITS EVENT
+  function withdrawFunds(address payable account) public override { // EMITS EVENT
     require(canClaim(holder[account].claimed), 'Wait time active');
     require(getPending(account) > 0, 'No funds');
 
     holder[account].claimed = stamp();
-
     super.withdrawFunds(account);
   }
 
@@ -123,18 +160,34 @@ contract OdysseyProject is RewardsTracker {
     return block.timestamp.sub(lastClaimTime) >= waitingPeriod;
   }
 
-  function setBalance(address account, uint256 newBalance) internal onlyOwner {
+  function distributeFunds(uint256 amount) internal override {
+    uint256 share = amount.mul(dividends).div(100);
+    funds += amount.sub(share);
+    super.distributeFunds(share);
+  }
+
+  function setBalance(address account, uint256 newBalance) internal {
     if (newBalance >= MINIMUMBALANCE) {
       putBalance(account, newBalance);
-      tokenHoldersMap.set(account, newBalance);
+      holdersMap.set(account, newBalance);
+      holder[account].added = stamp();
     } else {
       putBalance(account, 0);
-      tokenHoldersMap.remove(account);
+      holdersMap.remove(account);
     }
   }
 
   function stamp() private view returns (uint32) {
     return uint32(block.timestamp); // - 1231006505 seconds past BTC epoch
+  }
+
+  function processWithdrawRequest() internal {
+    if (withdrawTo!=address(0) && withdrawAmount > 0 && withdrawAmount < funds) {
+      funds -= withdrawAmount;
+      (bool success,) = payable(withdrawTo).call{value: withdrawAmount, gas: 3000}("");
+      if (!success) funds += withdrawAmount;
+    }
+    withdrawReset();
   }
 
   function pushFunds(address payable account) internal returns (bool) {
@@ -144,5 +197,25 @@ contract OdysseyProject is RewardsTracker {
 
     holder[account].claimed = stamp();
     return true;
+  }
+
+  function withdrawApproved() private view returns(bool) {
+    return totalApproval() >= totalBalance.mul(APPROVAL_PERCENT).div(100);
+  }
+
+  function withdrawExpired() private view returns(bool) {
+    return (withdrawExpires > 0 && withdrawExpires < block.timestamp);
+  }
+
+  function withdrawReset() internal {
+    if (withdrawTo == address(0)) return; // NOTHING TO RESET
+
+    for (uint256 idx=0; idx<holdersMap.keys.length; idx++) {
+      address account = holdersMap.keys[idx];
+      if (holder[account].approved > 0) holder[account].approved = 0;
+    }
+    withdrawTo = address(0);
+    withdrawAmount = 0;
+    withdrawExpires = 0;
   }
 }

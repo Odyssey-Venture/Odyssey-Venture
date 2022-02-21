@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.11;
 
-import './OdysseyRewards.sol';
-import '@openzeppelin/contracts/access/Ownable.sol';
-import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
-import '@openzeppelin/contracts/utils/math/SafeMath.sol';
-import '@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol';
-import '@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol';
-import '@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol';
+import "./OdysseyRewards.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
+import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
+import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 contract Odyssey is ERC20, Ownable {
   using SafeMath for uint256;
@@ -17,11 +17,9 @@ contract Odyssey is ERC20, Ownable {
 
   OdysseyRewards public odysseyRewards;
 
-  address constant ROUTER_PCSV2_MAINNET = 0x10ED43C718714eb63d5aA57B78B54704E256024E;
-  // address constant ROUTER_PCSV2_TESTNET = 0xD99D1c33F9fC3444f8101754aBC46c52416550D1);
-  uint256 constant FINAL_SUPPLY = 50_000_000_000 ether; // 50B FINAL SUPPLY / NO MINTING
-  uint256 constant MAX_WALLET = 5_000_000_000 ether; // MAX PER WALLET: 5_000_000_000 / 10%
-  uint256 constant MAX_SELL = 500_000_000 ether; // MAX PER SELL: 500_000_000 / 1%
+  uint256 public constant FINAL_SUPPLY = 50_000_000_000 ether; // 50B FINAL SUPPLY / NO MINTING
+  uint256 public constant MAX_WALLET = 5_000_000_000 ether; // MAX PER WALLET: 5_000_000_000 / 10%
+  uint256 public constant MAX_SELL = 500_000_000 ether; // MAX PER SELL: 500_000_000 / 1%
 
   bool public isOpenToPublic = false;
   bool public isStakingOn = false;
@@ -65,10 +63,14 @@ contract Odyssey is ERC20, Ownable {
   bool private swapping = false;
 
   // INITIALIZE CONTRACT
-  constructor() ERC20('Odyssey', '$ODSY') {
+  constructor() ERC20("Odyssey", "$ODSY") {
     // SETUP PANCAKESWAP
-    IUniswapV2Router02 router = IUniswapV2Router02(ROUTER_PCSV2_MAINNET); // IMMUTABLES UNREADABLE IN CONSTRUCTOR SO USE TMP VAR
-    address pair = IUniswapV2Factory(router.factory()).createPair(address(this), router.WETH()); // Create a uniswap pair for this new token
+    address ROUTER_PCSV2_MAINNET = 0x10ED43C718714eb63d5aA57B78B54704E256024E;
+    // address ROUTER_PCSV2_TESTNET = 0xD99D1c33F9fC3444f8101754aBC46c52416550D1;
+    // address ROUTER_FAKEPCS_TESTNET = 0x9Ac64Cc6e4415144C455BD8E4837Fea55603e5c3;
+
+    IUniswapV2Router02 router = IUniswapV2Router02(ROUTER_PCSV2_MAINNET);
+    address pair = IUniswapV2Factory(router.factory()).createPair(address(this), router.WETH());
     uniswapV2Router = router;
     uniswapV2Pair = pair;
     autoMarketMakers[pair] = true;
@@ -79,7 +81,7 @@ contract Odyssey is ERC20, Ownable {
     isFeeless[address(this)] = true;
     isFeeless[projectWallet] = true;
 
-    odysseyRewards = new OdysseyRewards('OdysseyRewards', 'ODSYRV1');
+    odysseyRewards = new OdysseyRewards("OdysseyRewards", "ODSYRV1");
     setDefaultRewardsExclusions();
     setFeesByLevel(1);
 
@@ -96,8 +98,8 @@ contract Odyssey is ERC20, Ownable {
   }
 
   function openToPublic() external onlyOwner { // NO GOING BACK
-    require(address(this).balance > 0, 'Must have bnb to pair for launch');
-    require(balanceOf(address(this)) > 0, 'Must have tokens to pair for launch');
+    require(address(this).balance > 0, "Must have bnb to pair for launch");
+    require(balanceOf(address(this)) > 0, "Must have tokens to pair for launch");
 
     isOpenToPublic = true;
 
@@ -109,23 +111,23 @@ contract Odyssey is ERC20, Ownable {
   }
 
   function setAutomatedMarketMakerPair(address pair, bool value) external onlyOwner {
-    require(pair != uniswapV2Pair, 'Value invalid');
-    require(autoMarketMakers[pair] != value, 'Value unchanged');
+    require(pair != uniswapV2Pair, "Value invalid");
+    require(autoMarketMakers[pair] != value, "Value unchanged");
     autoMarketMakers[pair] = value;
     odysseyRewards.setExcludedAddress(pair);
     emit SetAutomatedMarketMakerPair(pair, value);
   }
 
   function setFeeless(address account, bool setting) external onlyOwner {
-    require(isFeeless[account]!=setting, 'Value unchanged');
+    require(isFeeless[account]!=setting, "Value unchanged");
 
     isFeeless[account] = setting;
     emit IsFeelessChanged(account, setting);
   }
 
   function setGasLimit(uint256 gas) external onlyOwner {
-    require(gas >= 250_000 && gas <= 500_000, 'Value invalid');
-    require(gas != gasLimit, 'Value unchanged');
+    require(gas >= 250_000 && gas <= 500_000, "Value invalid");
+    require(gas != gasLimit, "Value unchanged");
     emit GasLimitChanged(gasLimit, gas);
     gasLimit = gas;
   }
@@ -135,7 +137,7 @@ contract Odyssey is ERC20, Ownable {
   }
 
   function setProjectWallet(address wallet) external onlyOwner {
-    require(wallet != projectWallet, 'Value unchanged');
+    require(wallet != projectWallet, "Value unchanged");
 
     address oldWallet = projectWallet;
     projectWallet = payable(wallet);
@@ -145,11 +147,11 @@ contract Odyssey is ERC20, Ownable {
   }
 
   function setRewardsTracker(address newAddress) external onlyOwner {
-    require(newAddress != address(odysseyRewards), 'Value unchanged');
+    require(newAddress != address(odysseyRewards), "Value unchanged");
 
     OdysseyRewards newRewardsTracker = OdysseyRewards(payable(newAddress));
 
-    require(newRewardsTracker.owner() == address(this), 'Token must own tracker');
+    require(newRewardsTracker.owner() == address(this), "Token must own tracker");
 
     emit RewardsTrackerChanged(address(odysseyRewards), newAddress);
 
@@ -158,7 +160,7 @@ contract Odyssey is ERC20, Ownable {
   }
 
   function setStaking(bool setting) external onlyOwner {
-    require(isStakingOn!=setting, 'Value unchanged');
+    require(isStakingOn!=setting, "Value unchanged");
 
     isStakingOn = setting;
     if (odysseyRewards.isStakingOn()!=setting) odysseyRewards.setStaking(setting);
@@ -176,13 +178,13 @@ contract Odyssey is ERC20, Ownable {
   }
 
   function setRewardsStaking(address account, bool setting) external {
-    require(account==msg.sender, 'Value invalid'); // USER MUST PROVIDER THEIR OWN ADDRESS
-    require(isStaked[account]!=setting, 'Value unchanged');
+    require(account==msg.sender, "Value invalid"); // USER MUST PROVIDER THEIR OWN ADDRESS
+    require(isStaked[account]!=setting, "Value unchanged");
 
     if (isStaked[account] && !setting) { // TURNING OFF STAKING HAS NO CONDITIONS AND NEVER FAILS
       try odysseyRewards.stakeAccount(account, setting) {} catch {} // REWARDS CONTRACT SHOULD NOT PREVENT TURNING OFF THIS
     } else {
-      require(isStakingOn, 'Rewards staking not active');
+      require(isStakingOn, "Rewards staking not active");
       odysseyRewards.stakeAccount(account, setting); // THIS COULD REVERT IN REWARDS CONTRACT
     }
     isStaked[account] = setting;
@@ -202,7 +204,7 @@ contract Odyssey is ERC20, Ownable {
   }
 
   function setRewardsMinimumBalance(uint256 amount) external onlyOwner {
-    require(amount >= 5_000_000 && amount <= 15_000_000, 'Value invalid');
+    require(amount >= 5_000_000 && amount <= 15_000_000, "Value invalid");
 
     odysseyRewards.setMinimumBalance(amount * 1 ether);
   }
@@ -216,19 +218,19 @@ contract Odyssey is ERC20, Ownable {
   }
 
   function _transfer(address from, address to, uint256 amount) internal override {
-    require(from != address(0) && to != address(0), 'Value invalid');
-    require(amount > 0, 'Value invalid');
+    require(from != address(0) && to != address(0), "Value invalid");
+    require(amount > 0, "Value invalid");
 
-    require(!isStakingOn || !isStaked[from], 'Account is staked for rewards');
+    require(!isStakingOn || !isStaked[from], "Account is staked for rewards");
 
-    require(to==address(this) || autoMarketMakers[to] || balanceOf(to).add(amount) <= MAX_WALLET, 'Wallet over limit');
+    require(to==address(this) || autoMarketMakers[to] || balanceOf(to).add(amount) <= MAX_WALLET, "Wallet over limit");
 
     if (!isOpenToPublic && isPresale[from]) { // PRE-SALE WALLET - NO FEES, JUST TRANSFER AND UPDATE TRACKER BALANCES
       transferAndUpdateRewardsTracker(from, to, amount);
       return;
     }
 
-    require(isOpenToPublic, 'Trading closed');
+    require(isOpenToPublic, "Trading closed");
 
     if (!autoMarketMakers[to] && !autoMarketMakers[from]) { // NOT A SALE, NO FEE TRANSFER
       transferAndUpdateRewardsTracker(from, to, amount);
@@ -238,10 +240,10 @@ contract Odyssey is ERC20, Ownable {
 
     if (!swapping) {
       bool feePayer = !isFeeless[from] && !isFeeless[to];
-      if (feePayer) { // RENDER UNTO CAESAR THE THINGS THAT ARE CAESAR'S
+      if (feePayer) { // RENDER UNTO CAESAR THE THINGS THAT ARE CAESAR"S
         uint256 taxTotal = 0;
         if (autoMarketMakers[to] && from!=address(uniswapV2Router)) { // SELL
-          require(amount <= MAX_SELL, 'Sell over limit');
+          require(amount <= MAX_SELL, "Sell over limit");
           taxTotal = amount.mul(feeToSell).div(100);
           if (taxTotal > 0) {
             uint256 taxLiquidity = taxTotal.mul(feeLiquidity).div(feeToSell);
@@ -356,7 +358,7 @@ contract Odyssey is ERC20, Ownable {
     accumulatedRewards -= tokens;
     uint256 swappedETH = swapTokensForETH(tokens);
     if (swappedETH > 0) {
-      (bool success,) = address(odysseyRewards).call{value: swappedETH}('');
+      (bool success,) = address(odysseyRewards).call{value: swappedETH}("");
       if (success) {
         emit FundsSentToRewards(tokens, swappedETH);
         changeMarketCap(swappedETH, tokens);
@@ -370,7 +372,7 @@ contract Odyssey is ERC20, Ownable {
     accumulatedProject -= tokens;
     uint256 swappedETH = swapTokensForETH(tokens);
     if (swappedETH > 0) {
-      (bool success,) = address(projectWallet).call{value: swappedETH}('');
+      (bool success,) = address(projectWallet).call{value: swappedETH}("");
       if (success) emit FundsSentToProject(tokens, swappedETH);
     }
   }

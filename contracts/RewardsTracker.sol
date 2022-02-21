@@ -70,7 +70,7 @@ contract RewardsTracker is Ownable {
     magnifiedCorrections[account] = magnifiedCorrections[account].add((magnifiedBalance.mul(amount)).toInt256Safe());
   }
 
-  function distributeFunds(uint256 amount) internal {
+  function distributeFunds(uint256 amount) internal virtual {
     if (totalBalance > 0 && amount > 0) {
       magnifiedBalance = magnifiedBalance.add((amount).mul(MAGNIFIER) / totalBalance);
       totalDistributed = totalDistributed.add(amount);

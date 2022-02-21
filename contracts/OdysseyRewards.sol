@@ -49,7 +49,7 @@ contract OdysseyRewards is RewardsTracker {
     return tokenHoldersMap.keys.length;
   }
 
-  function getReport() public view returns (uint256 holderCount, bool stakingOn, uint256 totalTokensTracked, uint256 totalTokensStaked, uint256 totalRewardsPaid, uint256 requiredBalance, uint256 waitPeriodSeconds) {
+  function getReport() external view returns (uint256 holderCount, bool stakingOn, uint256 totalTokensTracked, uint256 totalTokensStaked, uint256 totalRewardsPaid, uint256 requiredBalance, uint256 waitPeriodSeconds) {
     holderCount = tokenHoldersMap.keys.length;
     stakingOn = isStakingOn;
     totalTokensTracked = totalTracked;
@@ -59,7 +59,7 @@ contract OdysseyRewards is RewardsTracker {
     waitPeriodSeconds = waitingPeriod;
   }
 
-  function getReportAccount(address account) public view returns (bool excluded, uint256 indexOf, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours, uint256 stakedDays) {
+  function getReportAccount(address account) external view returns (bool excluded, uint256 indexOf, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours, uint256 stakedDays) {
     excluded = (holder[account].excluded > 0);
     indexOf = excluded ? 0 : tokenHoldersMap.getIndexOfKey(account).toUint256Safe();
     tokens = excluded ? 0 : unstakedBalanceOf(account);
@@ -75,7 +75,7 @@ contract OdysseyRewards is RewardsTracker {
     return (isStakingOn && holder[account].excluded==0 && unstakedBalanceOf(account)>=minimumBalance);
   }
 
-  function isStaked(address account) public view returns(bool) {
+  function isStaked(address account) external view returns(bool) {
     return (holder[account].staked > 0);
   }
 
