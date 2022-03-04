@@ -12,8 +12,8 @@ const defaults = {
   maxWallet: 5_000_000_000,
   maxSell: 500_000_000,
   swapThreshold: 100_000_000,
-  minTrackerBalance: 10_000_000,
-  maxTrackerBalance: 100_000_000
+  minTrackerBalance: 1_000_000,
+  maxTrackerBalance: 15_000_000
 };
 
 const one_hour = 60 * 60;
@@ -40,7 +40,9 @@ contract('Odyssey', function (accounts) {
   beforeEach('setup contract for each test', async function() {
     contract = await Odyssey.new();
     uniswapV2Pair = await contract.uniswapV2Pair();
-    tracker = await OdysseyRewards.at(await contract.odysseyRewards());
+    tracker = await OdysseyRewards.new("OdysseyRewards", "ODSYRV1");
+    await tracker.transferOwnership(contract.address, { from: owner });
+    await contract.setRewardsTracker(tracker.address);
   });
 
   it('has publically viewable tracker', async function() {
@@ -48,7 +50,7 @@ contract('Odyssey', function (accounts) {
     assert.equal(await tracker.name(), 'OdysseyRewards');
   });
 
-  it('allows requires the contract to own to update tracker', async function() {
+  it('allows requires the contract to own new tracker', async function() {
     let newTracker = await OdysseyRewards.new('OdysseyRewards', 'ODSYRV2');
     await expectRevert(contract.setRewardsTracker(newTracker.address, { from: owner }), 'Token must own tracker');
   });
@@ -68,15 +70,15 @@ contract('Odyssey', function (accounts) {
   });
 
   it('can read tracker settings', async function() {
-    await contract.transfer(holder1, toWei(defaults.minTrackerBalance), { from: owner });
+    await contract.transfer(holder1, toWei(defaults.maxTrackerBalance), { from: owner });
     let data = await contract.getRewardsReport();
     assert.equal(data.holderCount, 1);
   });
 
   it('can read tracker rewards report', async function() {
-    await contract.transfer(holder1, toWei(defaults.minTrackerBalance), { from: owner });
-    let data = await contract.getReport(holder1);
-    assert.equal(data.trackedBalance, toWei(defaults.minTrackerBalance));
+    await contract.transfer(holder1, toWei(defaults.maxTrackerBalance), { from: owner });
+    let data = await contract.getRewardsReportAccount(holder1);
+    assert.equal(data.tokens, toWei(defaults.maxTrackerBalance));
   });
 
   it('allows only owner to in/exclude account from rewards', async function () {
@@ -86,36 +88,40 @@ contract('Odyssey', function (accounts) {
   it('allows owner to exclude account from earning rewards', async function () {
     transaction = await contract.setRewardsExcludedAddress(holder1, true, { from: owner });
     expectEvent.inTransaction(transaction.tx, tracker, 'ExcludedChanged', { account: holder1, excluded: true });
-    assert.isTrue((await contract.getReport(holder1)).accountExcluded);
+    assert.isTrue((await contract.getRewardsReportAccount(holder1)).excluded);
   });
 
   it('clears tracker balance when excluding an account from earning rewards', async function () {
-    await contract.transfer(holder1, toWei(defaults.minTrackerBalance), { from: owner });
+    await contract.transfer(holder1, toWei(defaults.maxTrackerBalance), { from: owner });
     await contract.setRewardsExcludedAddress(holder1, true, { from: owner });
-    assert.equal((await contract.getReport(holder1)).trackedBalance, '0');
+    assert.equal((await contract.getRewardsReportAccount(holder1)).tokens, '0');
   });
 
   it('allows owner to include account for earning rewards', async function () {
     await contract.setRewardsExcludedAddress(holder1, true, { from: owner });
     transaction = await contract.setRewardsExcludedAddress(holder1, false, { from: owner });
     expectEvent.inTransaction(transaction.tx, tracker, 'ExcludedChanged', { account: holder1, excluded: false });
-    // assert.isFalse((await contract.getReport(holder1)).accountExcluded);
   });
 
   it('sets tracker balance when including an account for earning rewards', async function () {
-    await contract.transfer(holder1, toWei(defaults.minTrackerBalance), { from: owner });
+    await contract.transfer(holder1, toWei(defaults.maxTrackerBalance), { from: owner });
     await contract.setRewardsExcludedAddress(holder1, true, { from: owner });
     await contract.setRewardsExcludedAddress(holder1, false, { from: owner });
-    assert.equal((await contract.getReport(holder1)).trackedBalance, toWei(defaults.minTrackerBalance));
+    assert.equal((await contract.getRewardsReportAccount(holder1)).tokens, toWei(defaults.maxTrackerBalance));
   });
 
   it('allows only owner to set minimum balance', async function () {
-    await expectRevert(contract.setRewardsMinimumBalance(defaults.minTrackerBalance, { from: holder1 }), 'Ownable: caller is not the owner');
+    await expectRevert(contract.setRewardsMinimumBalance(defaults.maxTrackerBalance, { from: holder1 }), 'Ownable: caller is not the owner');
   });
 
   it('allows owner to set minimum balance', async function () {
     transaction = await contract.setRewardsMinimumBalance(defaults.minTrackerBalance+1, { from: owner });
-    expectEvent.inTransaction(transaction.tx, tracker, 'MinimumBalanceChanged', { from: '10000000', to: '10000001' });
+    expectEvent.inTransaction(transaction.tx, tracker, 'MinimumBalanceChanged', { from: toWei(defaults.maxTrackerBalance), to: toWei(defaults.minTrackerBalance+1) });
+  });
+
+  it('only allows minimum balance to be set lower than previous value', async function () {
+    await contract.setRewardsMinimumBalance(10_000_000, { from: owner });
+    await expectRevert(contract.setRewardsMinimumBalance(11_000_000, { from: owner }), 'Value cannot increase');
   });
 
   it('requires owner to set a valid minimum balance', async function () {
@@ -133,15 +139,15 @@ contract('Odyssey', function (accounts) {
   });
 
   it('allows holder withdraw earned rewards', async function () {
-    await contract.transfer(holder1, toWei(defaults.minTrackerBalance), { from: owner });
+    await contract.transfer(holder1, toWei(defaults.maxTrackerBalance), { from: owner });
     await tracker.send(toWei(1), { from: holder1 });
     transaction = await contract.withdrawRewards({ from: holder1 });
     expectEvent.inTransaction(transaction.tx, tracker, 'FundsWithdrawn', { account: holder1 });
   });
 
   it('allows bulk processing of earned reward withdraws', async function () {
-    await contract.transfer(holder1, toWei(defaults.minTrackerBalance), { from: owner });
-    await contract.transfer(holder2, toWei(defaults.minTrackerBalance), { from: owner });
+    await contract.transfer(holder1, toWei(defaults.maxTrackerBalance), { from: owner });
+    await contract.transfer(holder2, toWei(defaults.maxTrackerBalance), { from: owner });
     await tracker.send(toWei(1), { from: holder1 });
     transaction = await contract.processRewardsClaims({ from: owner });
     expectEvent.inTransaction(transaction.tx, tracker, 'ClaimsProcessed', { claims: '2' });

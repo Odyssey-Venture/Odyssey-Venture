@@ -46,14 +46,16 @@ contract('Odyssey', function (accounts) {
   let tracker;
 
   const wallets = {
-    project: '0xfB0f7207B2e682c8a7A6bdb2b2012a395a653584',
+    project: owner,
     liquidity: owner
   };
 
   beforeEach('setup contract for each test', async function() {
     contract = await Odyssey.new();
+    tracker = await OdysseyRewards.new("OdysseyRewards", "ODSYRV1"); //at(await contract.odysseyRewards());
+    await tracker.transferOwnership(contract.address, { from: owner });
+    await contract.setRewardsTracker(tracker.address);
     uniswapV2Pair = await contract.uniswapV2Pair();
-    tracker = await OdysseyRewards.at(await contract.odysseyRewards());
     // await contract.openToPublic();
   });
 
@@ -123,12 +125,12 @@ contract('Odyssey', function (accounts) {
     assert.isFalse(await contract.isPresale(holder1));
   });
 
-  it('allows only owner to set project wallet', async function () {
-    await expectRevert(contract.setProjectWallet(holder1, { from: holder1 }), 'Ownable: caller is not the owner');
+  it('allows only current project wallet to change project wallet', async function () {
+    await expectRevert(contract.setProjectWallet(holder1, { from: holder1 }), 'Value invalid');
   });
 
-  it('allows owner to set project wallet', async function () {
-    transaction = await contract.setProjectWallet(holder1, { from: owner });
+  it('allows project wallet to set project wallet', async function () {
+    transaction = await contract.setProjectWallet(holder1, { from: wallets.project });
     expectEvent(transaction, 'ProjectWalletChanged', { from: wallets.project, to: holder1 });
     assert.equal(await contract.projectWallet(), holder1);
   });
@@ -143,6 +145,16 @@ contract('Odyssey', function (accounts) {
 
   it('requires the value of ProjectWallet to change if updated', async function () {
     await expectRevert(contract.setProjectWallet(wallets.project, { from: owner }), 'Value unchanged');
+  });
+
+  it('allows owner to update tracker', async function() {
+    let newTracker = await OdysseyRewards.new('OdysseyRewards', 'ODSYRV2', {from: owner });
+    await newTracker.transferOwnership(contract.address, { from: owner });
+    transaction = await contract.setRewardsTracker(newTracker.address);
+    expectEvent(transaction, 'RewardsTrackerChanged', { from: tracker.address, to: newTracker.address });
+    assert.equal(await contract.odysseyRewards(), newTracker.address);
+    tracker = await OdysseyRewards.at(await contract.odysseyRewards());
+    assert.equal(await tracker.symbol(), 'ODSYRV2');
   });
 
   it('allows only owner to set gasLimit', async function () {
@@ -198,15 +210,16 @@ contract('Odyssey', function (accounts) {
   });
 
   it('allows only owner to turn staking on', async function () {
-    await expectRevert(contract.setStaking(true, { from: holder1 }), 'Ownable: caller is not the owner');
+    await expectRevert(contract.setRewardsStaking(true, { from: holder1 }), 'Ownable: caller is not the owner');
   });
 
   it('requires the value of IsStakingOn to change if updated', async function () {
-    await expectRevert(contract.setStaking(false, { from: owner }), 'Value unchanged');
+    await expectRevert(contract.setRewardsStaking(false, { from: owner }), 'Value unchanged');
   });
 
   it('allows owner to toggle staking option', async function () {
-    await contract.setStaking(true, { from: owner });
-    assert.isTrue(await contract.isStakingOn());
+    await contract.setRewardsStaking(true);
+    let report = await contract.getRewardsReport();
+    assert.isTrue(report.stakingOn);
   });
 });

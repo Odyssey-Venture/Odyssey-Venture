@@ -59,16 +59,19 @@ contract('Odyssey', function (accounts) {
   let uniswapV2Pair;
 
   const addresses = {
-    project: '0xfB0f7207B2e682c8a7A6bdb2b2012a395a653584',
+    project: owner,
     router: '0x10ED43C718714eb63d5aA57B78B54704E256024E',
     liquidity: owner
   };
 
   beforeEach('setup contract for each test', async function() {
     contract = await Odyssey.new();
+    tracker = await OdysseyRewards.new("OdysseyRewards", "ODSYRV1");
+    await tracker.transferOwnership(contract.address, { from: owner });
+    await contract.setRewardsTracker(tracker.address);
+
     uniswapV2Pair = await contract.uniswapV2Pair();
     defaults.swapThreshold = await contract.swapThreshold();
-    tracker = await OdysseyRewards.at(await contract.odysseyRewards());
     addresses.contract = contract.address;
     addresses.pair = uniswapV2Pair;
   });

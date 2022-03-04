@@ -66,13 +66,12 @@ contract('Odyssey', function (accounts) {
   let tracker;
   let uniswapV2Pair;
   let uniswapV2Router;
-  let swappedBNB;
   let p0;
   let p1;
   let tomorrow = Date.now() + one_day;
 
   const addresses = {
-    project: '0xfB0f7207B2e682c8a7A6bdb2b2012a395a653584',
+    project: owner,
     router: '0x10ED43C718714eb63d5aA57B78B54704E256024E',
     dead: '0x000000000000000000000000000000000000dEaD',
     liquidity: owner
@@ -80,15 +79,16 @@ contract('Odyssey', function (accounts) {
 
   beforeEach('setup contract for each test', async function() {
     contract = await Odyssey.new();
-    tracker = await OdysseyRewards.at(await contract.odysseyRewards());
+    tracker = await OdysseyRewards.new("OdysseyRewards", "ODSYRV1");
+    await tracker.transferOwnership(contract.address, { from: owner });
+    await contract.setRewardsTracker(tracker.address);
     uniswapV2Router = await IUniswapV2Router02.at(addresses.router);
     uniswapV2Pair = await IUniswapV2Pair.at(await contract.uniswapV2Pair());
-
     p0 = await uniswapV2Pair.token0();
     p1 = await uniswapV2Pair.token1();
   });
 
-  it('project wallet', async function () {
+  it('testing buys', async function () {
     await contract.send(toWei(250), { from: holder1 });
     await contract.send(toWei(250), { from: holder2 });
     await contract.send(toWei(250), { from: holder3 });
@@ -109,7 +109,6 @@ contract('Odyssey', function (accounts) {
 
     await contract.transfer(contract.address, toWei(25_000_000_000), { from: owner });
 
-    let project_balance = await web3.eth.getBalance(addresses.project);
     let data = await contract.getRewardsReport();
     assert.equal(fromWei(data.totalRewardsPaid), 0); // NO REWARDS YET
     assert.equal(fromWei(await contract.balanceOf(contract.address)), 25_000_000_000);
@@ -130,22 +129,25 @@ contract('Odyssey', function (accounts) {
     assert.equal(fromWei(await contract.accumulatedProject()),   3_000_000); // 3%
 
 
-    console.log([p0,p1]);
-    console.log([WBNB, contract.address]);
     // transaction = await uniswapV2Pair.approve(holder1, toWei(1), {from: holder1});
     // console.log(transaction);
-    console.log((await contract.balanceOf(holder1)).toString());
+    let balance = await contract.balanceOf(holder1);
 
+    console.log('Buying 100 BNB in tokens');
     transaction = await uniswapV2Router.swapExactETHForTokensSupportingFeeOnTransferTokens(
-      0, [WBNB, contract.address], holder1, tomorrow, { value: toWei(250), from: holder1 }
+      0, [WBNB, contract.address], holder1, tomorrow, { value: toWei(100), from: holder1 }
     );
+
+    let newBalance = await contract.balanceOf(holder1);
+
+    console.log('recieved', fromWei(newBalance) - fromWei(balance), 'tokens for 100 BNB');
+
+    assert.notEqual(balance, newBalance);
 
     // console.log(transaction);
 
     // transaction = await uniswapV2Router.swapExactETHForTokensSupportingFeeOnTransferTokens(0, [ uniswapV2Pair.token0(), uniswapV2Pair.token1() ], holder9, 1);
     // console.log(transaction);
-
-console.log((await contract.balanceOf(holder1)).toString());
 
   });
 });

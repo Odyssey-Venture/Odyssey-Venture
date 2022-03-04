@@ -1,87 +1,73 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.11;
 
-import './RewardsTracker.sol';
-import './IterableMapping.sol';
+import "./Odyssey.sol";
+import "./RewardsTracker.sol";
+import "./IterableMapping.sol";
 
 contract OdysseyProject is RewardsTracker {
   using SafeMath for uint256;
   using SafeMathInt for int256;
   using IterableMapping for IterableMapping.Map;
 
-  string public name;
-  string public symbol;
-
-  uint256 public dividends = 10;
-  uint256 public funds = 0;
-
-  uint256 public constant APPROVAL_PERCENT = 50;
-
-  address public withdrawTo = address(0);
-  uint256 public withdrawExpires = 0;
-  uint256 public withdrawAmount = 0;
-
   IterableMapping.Map private holdersMap;
   uint256 public lastIndex = 0;
 
-  struct Holder { // UP TO 8 PACKED VARS @ 32
-    uint32 added;
-    uint32 claimed;
-    uint32 shares;
-    uint32 approved;
+  Odyssey public odyssey;
+
+  uint256 public dividends = 10;
+  uint256 public dividendsInBNB = 0;
+  uint256 public funds = 0;
+  address public ceo1 = address(0);
+  address public ceo2 = address(0);
+  address public cfo1 = address(0);
+  address public cfo2 = address(0);
+
+  uint256 public minimumBalance = 10_000_000 ether; // 10M TOKENS REQ FOR DIVIDENDS
+
+  struct VoteOfficer {
+    address from;
+    address to;
+    bool voted;
   }
 
-  mapping (address => Holder) public holder;
+  struct VoteContract {
+    address to;
+    bool voted;
+  }
 
-  uint256 constant MINIMUMBALANCE = 1;
-  uint256 public waitingPeriod = 1 hours;
+  struct VoteFunds {
+    address to;
+    uint256 amount;
+    bool voted;
+  }
+
+  mapping (address => VoteContract) public voteContract;
+  mapping (address => VoteOfficer) public voteOfficer;
+  mapping (address => VoteFunds) public voteFunds;
 
   event ClaimsProcessed(uint256 iterations, uint256 claims, uint256 lastIndex, uint256 gasUsed);
+  event ContractChanged(address from, address to);
+  event ContractVote(address officer, address to);
+  event ContractVoteReset();
+  event FundsApproved(address to, uint256 amount);
+  event FundsRequest(address officer, address to, uint256 amount);
+  event FundsRequestReset();
+  event OfficerChanged(address from, address to);
+  event OfficerVote(address officer, address from, address to);
+  event OfficerVoteReset();
+  event MinimumBalanceChanged(uint256 from, uint256 to);
 
-  constructor(string memory name_, string memory symbol_) RewardsTracker() {
-    name = name_;
-    symbol = symbol_;
+  constructor() RewardsTracker() { }
+
+  modifier onlyOfficer() {
+    require(msg.sender==ceo1 || msg.sender==ceo2 || msg.sender==cfo1 || msg.sender==cfo2, "Invalid Officer");
+    _;
   }
 
-  function approveWithdraw() external {
-    require(balanceOf[msg.sender] > 0, "No shares");
-    require(withdrawTo!=address(0), "No pending request");
-    require(holder[msg.sender].approved==0, "Already approved");
-
-    if (withdrawExpired()) return withdrawReset();
-
-    holder[msg.sender].approved = stamp();
-
-    if (withdrawApproved()) processWithdrawRequest();
-  }
-
-  function requestWithdraw(uint256 amount) external {
-    require(balanceOf[msg.sender] > 0, "No shares");
-    require(funds > amount, "Overdraft");
-    require(withdrawExpires < block.timestamp, "Pending request active");
-
-    withdrawReset();
-
-    withdrawTo = msg.sender;
-    withdrawAmount = amount;
-    withdrawExpires = block.timestamp + 6 hours;
-    holder[msg.sender].approved = stamp();
-
-    // emit fundsrequest
-  }
-
-  function unapproveWithdraw() external {
-    require(balanceOf[msg.sender] > 0, "No shares");
-    require(holder[msg.sender].approved > 0, "Not approved");
-
-    if (withdrawExpired() || msg.sender==withdrawTo) return withdrawReset();
-
-    holder[msg.sender].approved = 0;
-  }
-
-  function getReport() public view returns (uint256 holderCount, uint256 totalShares, uint256 totalDividends) {
+  function getReport() public view returns (uint256 holderCount, uint256 totalDollars, uint256 totalDividends) {
     holderCount = holdersMap.keys.length;
-    totalShares = totalBalance;
+    totalDollars = totalBalance;
     totalDividends = totalDistributed;
   }
 
@@ -92,31 +78,12 @@ contract OdysseyProject is RewardsTracker {
   }
 
   function getReportAccountAt(uint256 index) public view returns (address account, uint256 shares, uint256 dividendsEarned, uint256 dividendsClaimed) {
-    require(index < holdersMap.keys.length, "Invalid value");
+    require(index < holdersMap.keys.length, "Value invalid");
 
     account = holdersMap.keys[index];
     shares = balanceOf[account];
     dividendsEarned = getAccumulated(account);
     dividendsClaimed = withdrawnRewards[account];
-  }
-
-  function setHolders(address[] memory wallets, uint256[] memory amounts) external onlyOwner {
-    require(totalBalance==0, "Shares already set.");
-    require(wallets.length < 100, "100 wallets max");
-
-    uint256 sum = 0;
-    for (uint256 idx=0;idx<wallets.length;idx++) sum += amounts[idx];
-    require(sum==1000, "1000 shares required");
-    for (uint256 idx=0;idx<wallets.length;idx++) setBalance(wallets[idx], amounts[idx]);
-  }
-
-  function totalApproval() public view returns(uint256) {
-    uint256 sum = 0;
-    for (uint256 idx=0; idx<holdersMap.keys.length; idx++) {
-      address account = holdersMap.keys[idx];
-      if (holder[account].approved > 0) sum += balanceOf[holdersMap.keys[idx]];
-    }
-    return sum;
   }
 
   function processClaims(uint256 gas) external {
@@ -145,77 +112,184 @@ contract OdysseyProject is RewardsTracker {
     emit ClaimsProcessed(iterations, claims, lastIndex, gasUsed);
   }
 
-  function withdrawFunds(address payable account) public override { // EMITS EVENT
-    require(canClaim(holder[account].claimed), 'Wait time active');
-    require(getPending(account) > 0, 'No funds');
+  function replaceContract(address to) external onlyOfficer {
+    voteContract[msg.sender].to = to;
+    voteContract[msg.sender].voted = true;
+    emit ContractVote(msg.sender, to);
 
-    holder[account].claimed = stamp();
+    bool unanimous = (voteContract[ceo1].to==to && voteContract[ceo2].to==to && voteContract[cfo1].to==to && voteContract[cfo2].to==to);
+
+    if (unanimous) {
+      odyssey.setProjectWallet(to);
+      emit ContractChanged(address(this), to);
+    }
+
+    bool disagree = (voteContract[ceo1].voted && voteContract[ceo1].to!=to) ||
+                    (voteContract[ceo2].voted && voteContract[ceo2].to!=to) ||
+                    (voteContract[cfo1].voted && voteContract[cfo1].to!=to) ||
+                    (voteContract[cfo2].voted && voteContract[cfo2].to!=to);
+
+    if (unanimous || disagree) {
+      delete voteContract[ceo1];
+      delete voteContract[ceo2];
+      delete voteContract[cfo1];
+      delete voteContract[cfo2];
+      if (disagree) emit ContractVoteReset();
+    }
+  }
+
+  function replaceOfficer(address from, address to) external onlyOfficer {
+    require(from!=address(0) && to!=address(0), "Value invalid");
+    require(from!=msg.sender && to!=msg.sender, "Value invalid");
+    require(from==ceo1 || from==ceo2 || from==cfo1 || from==cfo2, "Invalid Officer");
+    require(to!=ceo1 || to!=ceo2 || to!=cfo1 || to!=cfo2, "Existing Officer");
+
+    voteOfficer[msg.sender].from = from;
+    voteOfficer[msg.sender].to = to;
+    voteOfficer[msg.sender].voted = true;
+    emit OfficerVote(msg.sender, from, to);
+
+    bool unanimous =
+      (from==ceo1 || voteOfficer[ceo1].from==from && voteOfficer[ceo1].to==to) &&
+      (from==ceo2 || voteOfficer[ceo2].from==from && voteOfficer[ceo2].to==to) &&
+      (from==cfo1 || voteOfficer[cfo1].from==from && voteOfficer[cfo1].to==to) &&
+      (from==cfo2 || voteOfficer[cfo2].from==from && voteOfficer[cfo2].to==to);
+
+    if (unanimous) { // unanimous
+      if (from==ceo1) ceo1 = to;
+      if (from==ceo2) ceo2 = to;
+      if (from==cfo1) cfo1 = to;
+      if (from==cfo2) cfo2 = to;
+      emit OfficerChanged(from, to);
+    }
+
+    bool disagree =
+      (voteOfficer[ceo1].voted && (voteOfficer[ceo1].from!=from || voteOfficer[ceo1].to!=to)) ||
+      (voteOfficer[ceo2].voted && (voteOfficer[ceo2].from!=from || voteOfficer[ceo2].to!=to)) ||
+      (voteOfficer[cfo1].voted && (voteOfficer[cfo1].from!=from || voteOfficer[cfo1].to!=to)) ||
+      (voteOfficer[cfo2].voted && (voteOfficer[cfo2].from!=from || voteOfficer[cfo2].to!=to));
+
+    if (unanimous || disagree) {
+      delete voteOfficer[ceo1];
+      delete voteOfficer[ceo2];
+      delete voteOfficer[cfo1];
+      delete voteOfficer[cfo2];
+      if (disagree) emit OfficerVoteReset();
+    }
+  }
+
+  function requestFunds(address to, uint256 amount) external onlyOfficer {
+    require(funds > amount, "Overdraft");
+
+    voteFunds[msg.sender].to = to;
+    voteFunds[msg.sender].amount = amount;
+    voteFunds[msg.sender].voted = true;
+    emit FundsRequest(msg.sender, to, amount);
+
+    // IF CEO IS REQUESTING, CHECK IF EITHER CFO APPROVED AND VISE VERSA
+    bool approved = (msg.sender==ceo1 || msg.sender==ceo2) ?
+                    (voteFunds[cfo1].to==to && voteFunds[cfo1].amount==amount) || (voteFunds[cfo2].to==to && voteFunds[cfo2].amount==amount) :
+                    (voteFunds[ceo1].to==to && voteFunds[ceo1].amount==amount) || (voteFunds[ceo2].to==to && voteFunds[ceo2].amount==amount);
+
+    if (approved) {
+      funds -= amount;
+      (bool success,) = payable(to).call{ value: amount, gas: 3000 }("");
+      if (success) {
+        emit FundsApproved(to, amount);
+      } else {
+        funds += amount;
+      }
+    }
+
+    bool disagree = (voteFunds[ceo1].voted && (voteFunds[ceo1].to!=to || voteFunds[ceo1].amount!=amount)) ||
+                    (voteFunds[ceo2].voted && (voteFunds[ceo2].to!=to || voteFunds[ceo2].amount!=amount)) ||
+                    (voteFunds[cfo1].voted && (voteFunds[cfo1].to!=to || voteFunds[cfo1].amount!=amount)) ||
+                    (voteFunds[cfo2].voted && (voteFunds[cfo2].to!=to || voteFunds[cfo2].amount!=amount));
+
+    if (approved || disagree) {
+      delete voteFunds[ceo1];
+      delete voteFunds[ceo2];
+      delete voteFunds[cfo1];
+      delete voteFunds[cfo2];
+      if (disagree) emit FundsRequestReset();
+    }
+  }
+
+  function setHolders(address[] memory wallets, uint256[] memory dollars) external onlyOwner {
+    require(totalBalance==0, "Shares already set.");
+    require(wallets.length < 100, "100 wallets max");
+
+    for (uint256 idx=0;idx<wallets.length;idx++) {
+      setHolder(wallets[idx], dollars[idx]);
+    }
+
+    dividendsInBNB = (totalBalance * 1 ether).div(333); // FOR EACH 1K DOLLARS RETURN 3 BNB TO INVESTORS
+  }
+
+  function setOfficers(address[] memory wallets) external onlyOwner {
+    require(ceo1==address(0), "Officers already set");
+    require(wallets.length==4, "4 Officers required");
+
+    ceo1 = wallets[0];
+    ceo2 = wallets[1];
+    cfo1 = wallets[2];
+    cfo2 = wallets[3];
+  }
+
+  function setMinimumBalance(uint256 balance) external onlyOfficer {
+    require(balance != minimumBalance, 'Value unchanged');
+
+    emit MinimumBalanceChanged(minimumBalance, balance);
+    minimumBalance = balance;
+  }
+
+  function setToken(address token) external onlyOwner {
+    require(address(odyssey)==address(0), "Token already set");
+
+    odyssey = Odyssey(payable(token));
+  }
+
+  function withdrawFunds(address payable account) public override {
+    require(getPending(account) > 0, "No funds");
+
+    verifyMinimumBalance(account);
     super.withdrawFunds(account);
   }
 
   // PRIVATE
 
-  function canClaim(uint48 lastClaimTime) private view returns (bool) {
-    if (lastClaimTime > block.timestamp) return false;
-    return block.timestamp.sub(lastClaimTime) >= waitingPeriod;
-  }
-
   function distributeFunds(uint256 amount) internal override {
+    if (totalDistributed > dividendsInBNB) { // PAID IN FULL, NO MORE DISTRIBUTIONS
+      funds += amount;
+      return;
+    }
     uint256 share = amount.mul(dividends).div(100);
     funds += amount.sub(share);
     super.distributeFunds(share);
   }
 
-  function setBalance(address account, uint256 newBalance) internal {
-    if (newBalance >= MINIMUMBALANCE) {
-      putBalance(account, newBalance);
-      holdersMap.set(account, newBalance);
-      holder[account].added = stamp();
-    } else {
-      putBalance(account, 0);
-      holdersMap.remove(account);
-    }
-  }
-
-  function stamp() private view returns (uint32) {
-    return uint32(block.timestamp); // - 1231006505 seconds past BTC epoch
-  }
-
-  function processWithdrawRequest() internal {
-    if (withdrawTo!=address(0) && withdrawAmount > 0 && withdrawAmount < funds) {
-      funds -= withdrawAmount;
-      (bool success,) = payable(withdrawTo).call{value: withdrawAmount, gas: 3000}("");
-      if (!success) funds += withdrawAmount;
-    }
-    withdrawReset();
+  function setHolder(address account, uint256 dollars) internal {
+    putBalance(account, dollars);
+    holdersMap.set(account, dollars);
   }
 
   function pushFunds(address payable account) internal returns (bool) {
-    if (!canClaim(holder[account].claimed) || getPending(account)==0) return false;
+    verifyMinimumBalance(account);
+
+    if (getPending(account)==0) return false;
 
     super.withdrawFunds(account);
 
-    holder[account].claimed = stamp();
     return true;
   }
 
-  function withdrawApproved() private view returns(bool) {
-    return totalApproval() >= totalBalance.mul(APPROVAL_PERCENT).div(100);
-  }
+  function verifyMinimumBalance(address account) internal {
+    if (minimumBalance==0) return;
 
-  function withdrawExpired() private view returns(bool) {
-    return (withdrawExpires > 0 && withdrawExpires < block.timestamp);
-  }
-
-  function withdrawReset() internal {
-    if (withdrawTo == address(0)) return; // NOTHING TO RESET
-
-    for (uint256 idx=0; idx<holdersMap.keys.length; idx++) {
-      address account = holdersMap.keys[idx];
-      if (holder[account].approved > 0) holder[account].approved = 0;
+    if (balanceOf[account] > 0 && odyssey.balanceOf(account) < minimumBalance) {
+      putBalance(account, 0);
+    } else if (balanceOf[account] == 0 && odyssey.balanceOf(account) >= minimumBalance) {
+      putBalance(account, holdersMap.get(account));
     }
-    withdrawTo = address(0);
-    withdrawAmount = 0;
-    withdrawExpires = 0;
   }
 }

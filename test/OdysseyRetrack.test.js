@@ -7,24 +7,6 @@ const { expectEvent, expectRevert } = require('@openzeppelin/test-helpers');
 var chai = require('chai');
 const assert = chai.assert;
 
-const defaults = {
-  totalSupply: 50_000_000_000,
-  maxWallet: 5_000_000_000,
-  maxSell: 500_000_000,
-  swapThreshold: 100_000_000,
-  minTrackerBalance: 10_000_000,
-  maxTrackerBalance: 100_000_000
-};
-
-const one_hour = 60 * 60;
-const six_hours = 6 * one_hour;
-const two_hours = 2 * one_hour;
-const one_day = 24 *one_hour;
-
-function toWei(count) {
-  return `${count}000000000000000000`;
-}
-
 contract('Odyssey', function (accounts) {
   const [owner, holder1, holder2, holder3] = accounts;
   let contract;
@@ -32,15 +14,12 @@ contract('Odyssey', function (accounts) {
   let uniswapV2Pair;
   let tracker;
 
-  const wallets = {
-    project: '0xfB0f7207B2e682c8a7A6bdb2b2012a395a653584',
-    liquidity: owner
-  };
-
   beforeEach('setup contract for each test', async function() {
     contract = await Odyssey.new();
     uniswapV2Pair = await contract.uniswapV2Pair();
-    tracker = await OdysseyRewards.at(await contract.odysseyRewards());
+    tracker = await OdysseyRewards.new("OdysseyRewards", "ODSYRV1");
+    await tracker.transferOwnership(contract.address, { from: owner });
+    await contract.setRewardsTracker(tracker.address);
   });
 
   it('allows owner to update tracker', async function() {
@@ -52,5 +31,4 @@ contract('Odyssey', function (accounts) {
     tracker = await OdysseyRewards.at(await contract.odysseyRewards());
     assert.equal(await tracker.symbol(), 'ODSYRV2');
   });
-
 });

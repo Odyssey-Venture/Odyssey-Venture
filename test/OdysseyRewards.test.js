@@ -8,6 +8,8 @@ var chai = require('chai');
 const assert = chai.assert;
 const expect = chai.expect;
 
+const MIN_BALANCE = 10_000_000;
+
 const one_hour = 60 * 60;
 const six_hours = 6 * one_hour;
 const two_hours = 2 * one_hour;
@@ -29,7 +31,6 @@ function findEvent(transaction, event) {
 function eventArgs(transaction, name) {
   return findEvent(transaction, name).args;
 }
-
 
 function timeTravel(addSeconds) {
   const id = Date.now();
@@ -59,6 +60,7 @@ contract('OdysseyRewards', function (accounts) {
 
   beforeEach('setup contract for each test', async function() {
     contract = await OdysseyRewards.new('TestRewards', 'TST$');
+    await contract.setMinimumBalance(toWei(MIN_BALANCE));
   });
 
   it('has a name and symbol', async function () {
@@ -245,7 +247,6 @@ contract('OdysseyRewards', function (accounts) {
     assert.equal(data.rewardsClaimed.toString(), toWei(1)-1); // rounding
     assert.equal(fromWei(data.rewardsEarned), fromWei(data.rewardsClaimed));
     assert.equal(data.claimHours, '0');
-    assert.equal(data.stakedDays, '0');
   });
 
   it('allows excluded holder to view an account status report', async function () {
@@ -253,7 +254,6 @@ contract('OdysseyRewards', function (accounts) {
     await contract.send(toWei(1), { from: holder1 });
     await contract.setExcludedAddress(holder1, { from: owner });
     let data = await contract.getReportAccount(holder1);
-    // console.log(data);
     assert.isTrue(data.excluded);
     assert.equal(data.indexOf, '0');
     assert.equal(data.tokens, '0');
@@ -261,7 +261,7 @@ contract('OdysseyRewards', function (accounts) {
     assert.equal(data.stakedTokens, '0');
     assert.equal(data.rewardsEarned, toWei(1));
     assert.equal(data.rewardsClaimed, '0');
-    assert.equal(data.stakedDays, '0');
+    assert.equal(data.claimHours, '0');
   });
 
   it('allows holder withdraw earned rewards', async function () {

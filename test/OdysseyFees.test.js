@@ -1,6 +1,7 @@
 // test/Odyssey.test.js
 const Odyssey = artifacts.require('./Odyssey.sol');
 const OdysseyRewards = artifacts.require('./OdysseyRewards.sol');
+const OdysseyProject = artifacts.require('./OdysseyProject.sol');
 
 const { expectEvent, expectRevert } = require('@openzeppelin/test-helpers');
 var chai = require('chai');
@@ -58,7 +59,7 @@ contract('Odyssey', function (accounts) {
   let swappedBNB;
 
   const addresses = {
-    project: '0xfB0f7207B2e682c8a7A6bdb2b2012a395a653584',
+    project: owner,
     router: '0x10ED43C718714eb63d5aA57B78B54704E256024E',
     dead: '0x000000000000000000000000000000000000dEaD',
     liquidity: owner
@@ -66,14 +67,17 @@ contract('Odyssey', function (accounts) {
 
   beforeEach('setup contract for each test', async function() {
     contract = await Odyssey.new();
+    tracker = await OdysseyRewards.new("OdysseyRewards", "ODSYRV1");
+    await tracker.transferOwnership(contract.address, { from: owner });
+    await contract.setRewardsTracker(tracker.address);
+
     uniswapV2Pair = await contract.uniswapV2Pair();
     defaults.swapThreshold = await contract.swapThreshold();
-    tracker = await OdysseyRewards.at(await contract.odysseyRewards());
     addresses.contract = contract.address;
     addresses.pair = uniswapV2Pair;
   });
 
-  it('project wallet', async function () {
+  it('testing fees', async function () {
     await contract.send(toWei(250), { from: holder1 });
     await contract.send(toWei(250), { from: holder2 });
     await contract.send(toWei(250), { from: holder3 });
@@ -141,7 +145,7 @@ contract('Odyssey', function (accounts) {
     expectEvent(transaction, 'FundsSentToLiquidity', { tokens: toWei(8_000_000), value: swappedBNB });
     // TEST REWARDS
     logPriceRewardsEvent(transaction);
-    swappedBNB = findEvent(transaction, 'FundsSentToRewards').args.amount;
+    swappedBNB = findEvent(transaction, 'FundsSentToRewards').args.value;
     console.log(`Verify ${fromWei(swappedBNB)} BNB from swap went to rewards`);
     expectEvent.inTransaction(transaction.tx, tracker, 'FundsDeposited', { amount: swappedBNB });
     expectEvent.inTransaction(transaction.tx, tracker, 'FundsWithdrawn', { account: holder2 });
@@ -170,6 +174,14 @@ contract('Odyssey', function (accounts) {
     let project_funds = await web3.eth.getBalance(addresses.project) - project_balance;
     assert.equal(fromWei(swappedBNB), fromWei(project_funds));
 
+    // SWAP IN PROJECT WALLET CONTRACT
+    let project = await OdysseyProject.new();
+    let shareholders = [owner, holder1, holder2, holder3, holder4, holder5, holder6, holder7, holder8];
+    let shares = [2000,2000,2000,1000,1000,500,500,500,500];
+    await project.setHolders(shareholders, shares);
+
+    transaction =  await contract.setProjectWallet(project.address);
+    expectEvent(transaction, 'ProjectWalletChanged', { to: project.address });
 
     console.log('Selling 100_000_000 tokens - Liquidity over threshold');
     transaction = await contract.transfer(uniswapV2Pair, toWei(100_000_000), { from: holder7 });
@@ -192,9 +204,8 @@ contract('Odyssey', function (accounts) {
     expectEvent(transaction, 'FundsReceived', { from:  addresses.router });
     swappedBNB = findEvent(transaction, 'FundsReceived').args.amount;
     console.log(`Verify ${fromWei(swappedBNB)} BNB from swap went to rewards`);
-    expectEvent(transaction, 'FundsSentToRewards', { amount: swappedBNB });
+    expectEvent(transaction, 'FundsSentToRewards', { value: swappedBNB });
     expectEvent.inTransaction(transaction.tx, tracker, 'FundsDeposited', { amount: swappedBNB });
-    expectEvent.inTransaction(transaction.tx, tracker, 'ClaimsProcessed', { claims: '2' });
 
 
     console.log('Selling 100_000_000 tokens');
@@ -225,7 +236,13 @@ contract('Odyssey', function (accounts) {
     swappedBNB = findEvent(transaction, 'FundsReceived').args.amount;
     console.log(`Verify ${fromWei(swappedBNB)} BNB from swap went to project wallet`);
     expectEvent(transaction, 'FundsSentToProject', { value: swappedBNB });
-    project_funds = await web3.eth.getBalance(addresses.project) - project_balance - project_funds;
-    assert.equal(fromWei(swappedBNB), fromWei(project_funds));
+    swappedBNB = fromWei(swappedBNB);
+    assert.equal(fromWei(await web3.eth.getBalance(project.address)), swappedBNB);
+    let report = await project.getReport();
+    swappedBNB = (swappedBNB * 0.1).toFixed(2);
+    assert.equal(fromWei(report.totalDividends), swappedBNB);
+    swappedBNB = (swappedBNB * 0.2).toFixed(2);
+    report = await project.getReportAccount(holder1);
+    assert.equal(fromWei(report.dividendsEarned), swappedBNB);
   });
 });

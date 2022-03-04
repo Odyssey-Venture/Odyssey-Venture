@@ -1,17 +1,13 @@
 const OdysseyProject = artifacts.require('./OdysseyProject.sol');
+const Odyssey = artifacts.require('./Odyssey.sol');
 
 const { expectEvent, expectRevert } = require('@openzeppelin/test-helpers');
 
 var chai = require('chai');
 
 const assert = chai.assert;
-const expect = chai.expect;
 
-const five_mins = 5 * 60;
-const one_hour = 60 * 60;
-const six_hours = 6 * one_hour;
-const two_hours = 2 * one_hour;
-const one_day = 24 * one_hour;
+const ZERO = '0x0000000000000000000000000000000000000000';
 
 function toWei(count) {
   return `${count}000000000000000000`;
@@ -21,185 +17,262 @@ function fromWei(bn) {
   return (bn / toWei(1)).toFixed(2);
 }
 
-function findEvent(transaction, event) {
-  for (const log of transaction.logs) if (log.event==event) return log;
-  return {};
-}
-
-function eventArgs(transaction, name) {
-  return findEvent(transaction, name).args;
-}
-
-function timeTravel(addSeconds) {
-  const id = Date.now();
-  return new Promise((resolve, reject) => {
-    web3.currentProvider.send({
-      jsonrpc: '2.0',
-      method: 'evm_increaseTime',
-      params: [ addSeconds ],
-      id
-    }, (err1) => {
-      if (err1) return reject(err1);
-      web3.currentProvider.send({
-        jsonrpc: '2.0',
-        method: 'evm_mine',
-        id: id + 1
-      }, (err2, res) => (err2 ? reject(err2) : resolve(res)));
-    });
-  });
-}
-
 contract('OdysseyProject', function (accounts) {
   const [owner, holder1, holder2, holder3, holder4, holder5, holder6, holder7, holder8, holder9] = accounts;
   let contract;
-  let odyssey;
-  let report;
   let transaction;
   let shareholders = [owner, holder1, holder2, holder3, holder4, holder5, holder6, holder7, holder8];
-  let shares = [200,200,200,100,100,50,50,50,50];
+  let shares = [2000,2000,2000,1000,1000,500,500,500,500];
 
   beforeEach('setup contract for each test', async function() {
-    contract = await OdysseyProject.new('TestProject', 'TST$');
+    contract = await OdysseyProject.new();
     await contract.setHolders(shareholders, shares);
   });
 
-  it('has a name and symbol', async function () {
-    assert.equal(await contract.name(), 'TestProject');
-    assert.equal(await contract.symbol(), 'TST$');
+  it('sets Officer wallets', async function () {
+    await contract.setOfficers([holder1, holder2, holder3, holder4]);
+    assert.equal(await contract.ceo1(), holder1);
+    assert.equal(await contract.ceo2(), holder2);
+    assert.equal(await contract.cfo1(), holder3);
+    assert.equal(await contract.cfo2(), holder4);
   });
 
-  it('initializes shareholders using arrays', async function () {
-    report = await contract.getReport();
-    assert.equal(report.holderCount, shareholders.length);
-    assert.equal(report.totalShares, shares.reduce((m,x)=>m+=x, 0));
-    assert.equal(await contract.balanceOf(holder8), shares[8]);
+  it('requires 4 Officer wallets to set', async function () {
+    await expectRevert(contract.setOfficers([holder1, holder2, holder3]), '4 Officers required');
   });
 
-  it('only allows holders to request funds from contract', async function () {
-    await expectRevert(contract.requestWithdraw(toWei(1), { from: holder9 }), 'No shares');
+  it('allows Officer wallets to initialize once', async function () {
+    await contract.setOfficers([holder1, holder2, holder3, holder4]);
+    await expectRevert(contract.setOfficers([holder1, holder2, holder3, holder4]), 'Officers already set');
   });
 
-  it('only protects from overdraft', async function () {
-    await expectRevert(contract.requestWithdraw(toWei(1), { from: holder4 }), 'Overdraft');
+  it('replaceOfficer when approved by all other officers', async function () {
+    await contract.setOfficers([holder1, holder2, holder3, holder4]);
+
+    transaction = await contract.replaceOfficer(holder4, holder5, { from: holder1 }); // VOTE 1
+    // EVENT EMIT
+    expectEvent(transaction, 'OfficerVote', { officer: holder1, from: holder4, to: holder5 });
+    // CHECK VOTES
+    assert.equal((await contract.voteOfficer(holder1)).from, holder4);
+    assert.equal((await contract.voteOfficer(holder1)).to, holder5);
+    // CHECK STILL UNCHANGED
+    assert.equal(await contract.cfo2(), holder4);
+
+    transaction = await contract.replaceOfficer(holder4, holder5, { from: holder2 }); // VOTE 2
+    expectEvent(transaction, 'OfficerVote', { officer: holder2, from: holder4, to: holder5 });
+    assert.equal((await contract.voteOfficer(holder2)).from, holder4);
+    assert.equal((await contract.voteOfficer(holder2)).to, holder5);
+    assert.equal(await contract.cfo2(), holder4);
+
+    transaction = await contract.replaceOfficer(holder4, holder5, { from: holder3 }); // VOTE 3
+    expectEvent(transaction, 'OfficerVote', { officer: holder3, from: holder4, to: holder5 });
+    // CHANGE APPROVED
+    expectEvent(transaction, 'OfficerChanged', { from: holder4, to: holder5 });
+    assert.notEqual(await contract.cfo2(), holder4);
+    assert.equal(await contract.cfo2(), holder5);
+    // RESET VOTERS
+    assert.equal((await contract.voteOfficer(holder1)).from, ZERO);
+    assert.equal((await contract.voteOfficer(holder2)).from, ZERO);
+    assert.equal((await contract.voteOfficer(holder3)).from, ZERO);
+    assert.equal((await contract.voteOfficer(holder5)).from, ZERO);
   });
 
-  it('allows a holder to request funds from contract', async function () {
-    await contract.send(toWei(2), { from: holder9 });
-    await contract.requestWithdraw(toWei(1), { from: holder4 });
-    assert.equal(await contract.withdrawTo(), holder4);
-    assert.equal(await contract.withdrawAmount(), toWei(1));
-    assert.notEqual(await contract.withdrawExpires(), '0');
+  it('cancels replaceOfficer when conflicted -- 2 of 3', async function () {
+    await contract.setOfficers([holder1, holder2, holder3, holder4]);
+
+    await contract.replaceOfficer(holder4, holder5, { from: holder1 }); // VOTE 1
+    assert.equal((await contract.voteOfficer(holder1)).from, holder4);
+
+    await contract.replaceOfficer(holder4, holder5, { from: holder2 }); // VOTE 2
+    assert.equal((await contract.voteOfficer(holder2)).from, holder4);
+
+    transaction = await contract.replaceOfficer(holder4, holder6, { from: holder3 }); // DISAGREE
+    expectEvent(transaction, 'OfficerVoteReset');
+    // NO CHANGE
+    assert.equal(await contract.cfo2(), holder4);
+    // VOTES CLEARED
+    assert.equal((await contract.voteOfficer(holder1)).from, ZERO);
+    assert.equal((await contract.voteOfficer(holder2)).from, ZERO);
+    assert.equal((await contract.voteOfficer(holder3)).from, ZERO);
+    assert.equal((await contract.voteOfficer(holder5)).from, ZERO);
   });
 
-  it('allows only one request at a time', async function () {
-    await contract.send(toWei(2), { from: holder9 });
-    await contract.requestWithdraw(toWei(1), { from: holder4 });
-    await expectRevert(contract.requestWithdraw(toWei(1), { from: holder1 }), 'Pending request active');
+  it('cancels replaceOfficer when conflicted -- 1 of 3', async function () {
+    await contract.setOfficers([holder1, holder2, holder3, holder4]);
+
+    await contract.replaceOfficer(holder4, holder5, { from: holder1 }); // VOTE 1
+    assert.equal((await contract.voteOfficer(holder1)).from, holder4);
+
+    await contract.replaceOfficer(holder4, holder6, { from: holder3 }); // DISAGREE
+    expectEvent(transaction, 'OfficerVoteReset');
+    // NO CHANGE
+    assert.equal(await contract.cfo2(), holder4);
+    // VOTES CLEARED
+    assert.equal((await contract.voteOfficer(holder1)).from, ZERO);
+    assert.equal((await contract.voteOfficer(holder2)).from, ZERO);
+    assert.equal((await contract.voteOfficer(holder3)).from, ZERO);
+    assert.equal((await contract.voteOfficer(holder5)).from, ZERO);
   });
 
-  it('only allows holders to approve requests', async function () {
-    await expectRevert(contract.requestWithdraw(toWei(1), { from: holder9 }), 'No shares');
+  it('replaceContract when 4 of 4 vote', async function () {
+    await contract.setOfficers([holder1, holder2, holder3, holder4]);
+    let odyssey = await Odyssey.new();
+    await contract.setToken(odyssey.address, {from: owner });
+    await odyssey.setProjectWallet(contract.address, {from: owner });
+
+    let newProject = await OdysseyProject.new({from: owner });
+
+    transaction = await contract.replaceContract(newProject.address, { from: holder1 }); // VOTE 1
+    expectEvent(transaction, 'ContractVote', { officer: holder1, to: newProject.address });
+    assert.equal((await contract.voteContract(holder1)).to, newProject.address);
+
+    transaction = await contract.replaceContract(newProject.address, { from: holder2 }); // VOTE 2
+    expectEvent(transaction, 'ContractVote', { officer: holder2, to: newProject.address });
+    assert.equal((await contract.voteContract(holder2)).to, newProject.address);
+
+    transaction = await contract.replaceContract(newProject.address, { from: holder3 }); // VOTE 3
+    expectEvent(transaction, 'ContractVote', { officer: holder3, to: newProject.address });
+    assert.equal((await contract.voteContract(holder3)).to, newProject.address);
+
+    transaction = await contract.replaceContract(newProject.address, { from: holder4 }); // VOTE 4
+    expectEvent(transaction, 'ContractVote', { officer: holder4, to: newProject.address });
+
+    expectEvent(transaction, 'ContractChanged', { from: contract.address, to: newProject.address });
+    assert.equal(await odyssey.projectWallet(), newProject.address);
+
+    // VOTES CLEARED
+    assert.equal((await contract.voteContract(holder1)).to, ZERO);
+    assert.equal((await contract.voteContract(holder2)).to, ZERO);
+    assert.equal((await contract.voteContract(holder3)).to, ZERO);
+    assert.equal((await contract.voteContract(holder4)).to, ZERO);
   });
 
-  it('requires a request before approving', async function () {
-    await expectRevert(contract.approveWithdraw({ from: holder1 }), 'No pending request');
+  it('cancels replaceContract vote when disagree', async function () {
+    await contract.setOfficers([holder1, holder2, holder3, holder4]);
+
+    let newTracker = await OdysseyProject.new({from: owner });
+
+    transaction = await contract.replaceContract(newTracker.address, { from: holder1 }); // VOTE 1
+    expectEvent(transaction, 'ContractVote', { officer: holder1, to: newTracker.address });
+    assert.equal((await contract.voteContract(holder1)).to, newTracker.address);
+
+    transaction = await contract.replaceContract(holder9, { from: holder2 }); // DISAGREE
+    expectEvent(transaction, 'ContractVote', { officer: holder2, to: holder9 });
+
+    expectEvent(transaction, 'ContractVoteReset');
+
+    // VOTES CLEARED
+    assert.equal((await contract.voteContract(holder1)).to, ZERO);
+    assert.equal((await contract.voteContract(holder2)).to, ZERO);
+    assert.equal((await contract.voteContract(holder3)).to, ZERO);
+    assert.equal((await contract.voteContract(holder4)).to, ZERO);
   });
 
-  it('automatically approves own request', async function () {
-    await contract.send(toWei(2), { from: holder9 });
-    await contract.requestWithdraw(toWei(1), { from: holder4 });
-    assert.notEqual((await contract.holder(holder4)).approved, '0');
+  it('cancels replaceContract vote when disagree 3 of 4 vote', async function () {
+    await contract.setOfficers([holder1, holder2, holder3, holder4]);
+
+    let newTracker = await OdysseyProject.new({from: owner });
+
+    await contract.replaceContract(newTracker.address, { from: holder1 }); // VOTE 1
+    assert.equal((await contract.voteContract(holder1)).to, newTracker.address);
+    await contract.replaceContract(newTracker.address, { from: holder2 }); // VOTE 2
+    assert.equal((await contract.voteContract(holder2)).to, newTracker.address);
+    await contract.replaceContract(newTracker.address, { from: holder3 }); // VOTE 3
+    assert.equal((await contract.voteContract(holder3)).to, newTracker.address);
+    transaction = await contract.replaceContract(holder9, { from: holder4 }); // DISAGREE
+
+    expectEvent(transaction, 'ContractVoteReset');
+
+    // VOTES CLEARED
+    assert.equal((await contract.voteContract(holder1)).to, ZERO);
+    assert.equal((await contract.voteContract(holder2)).to, ZERO);
+    assert.equal((await contract.voteContract(holder3)).to, ZERO);
+    assert.equal((await contract.voteContract(holder4)).to, ZERO);
   });
 
-  it('cannot approve request twice', async function () {
-    await contract.send(toWei(2), { from: holder9 });
-    await contract.requestWithdraw(toWei(1), { from: holder4 });
-    await expectRevert(contract.approveWithdraw({ from: holder4 }), 'Already approved');
+  it('requestFunds by CEO must be approved by CFO', async function () {
+    await contract.setOfficers([holder1, holder2, holder3, holder4]);
+    await contract.send(toWei(10), { from: holder5 });
+    let before = await web3.eth.getBalance(holder5);
+
+    transaction = await contract.requestFunds(holder5, toWei(1), { from: holder1 }); // VOTE CEO1
+    // EVENT EMIT
+    expectEvent(transaction, 'FundsRequest', { officer: holder1, to: holder5, amount: toWei(1) });
+    // CHECK VOTES
+    assert.equal((await contract.voteFunds(holder1)).amount, toWei(1));
+    assert.equal((await contract.voteFunds(holder1)).to, holder5);
+    // 2ND CEO DOES NOTHING
+    transaction = await contract.requestFunds(holder5, toWei(1), { from: holder2 }); // VOTE CEO2
+    assert.equal((await contract.voteFunds(holder2)).to, holder5);
+
+    // CHECK STILL UNCHANGED
+    assert.equal(fromWei(await web3.eth.getBalance(contract.address)), 10);
+
+    transaction = await contract.requestFunds(holder5, toWei(1), { from: holder3 }); // VOTE CFO1
+    expectEvent(transaction, 'FundsRequest', { officer: holder3, to: holder5, amount: toWei(1) });
+
+    // REQ APPROVED
+    expectEvent(transaction, 'FundsApproved', { to: holder5, amount: toWei(1) });
+    // FUNDS DELIVERED
+    assert.equal(fromWei(await web3.eth.getBalance(contract.address)), 9);
+    assert.equal(fromWei(await web3.eth.getBalance(holder5)) - fromWei(before), 1);
+
+    // RESET VOTERS
+    assert.equal((await contract.voteFunds(holder1)).to, ZERO);
+    assert.equal((await contract.voteFunds(holder2)).to, ZERO);
+    assert.equal((await contract.voteFunds(holder3)).to, ZERO);
+    assert.equal((await contract.voteFunds(holder4)).to, ZERO);
   });
 
-  it('allows approving a request', async function () {
-    await contract.send(toWei(2), { from: holder9 });
-    await contract.requestWithdraw(toWei(1), { from: holder4 });
-    await contract.approveWithdraw({ from: holder1 });
-    assert.equal((await contract.totalApproval()).toNumber(), shares[1]+shares[4]);
+  it('requestFunds by CFO must be approved by CEO', async function () {
+    await contract.setOfficers([holder1, holder2, holder3, holder4]);
+    await contract.send(toWei(10), { from: holder5 });
+    let before = await web3.eth.getBalance(holder5);
+
+    transaction = await contract.requestFunds(holder5, toWei(1), { from: holder3 }); // VOTE CFO
+    // EVENT EMIT
+    expectEvent(transaction, 'FundsRequest', { officer: holder3, to: holder5, amount: toWei(1) });
+    // CHECK VOTES
+    assert.equal((await contract.voteFunds(holder3)).amount, toWei(1));
+    assert.equal((await contract.voteFunds(holder3)).to, holder5);
+    // 2ND CFO DOES NOTHING
+    transaction = await contract.requestFunds(holder5, toWei(1), { from: holder4 }); // VOTE CFO2
+    assert.equal((await contract.voteFunds(holder4)).to, holder5);
+
+    // CHECK STILL UNCHANGED
+    assert.equal(fromWei(await web3.eth.getBalance(contract.address)), 10);
+
+    transaction = await contract.requestFunds(holder5, toWei(1), { from: holder1 }); // VOTE CEO
+    expectEvent(transaction, 'FundsRequest', { officer: holder1, to: holder5, amount: toWei(1) });
+
+    // REQ APPROVED
+    expectEvent(transaction, 'FundsApproved', { to: holder5, amount: toWei(1) });
+    // FUNDS DELIVERED
+    assert.equal(fromWei(await web3.eth.getBalance(contract.address)), 9);
+    assert.equal(fromWei(await web3.eth.getBalance(holder5)) - fromWei(before), 1);
+
+    // RESET VOTERS
+    assert.equal((await contract.voteFunds(holder1)).to, ZERO);
+    assert.equal((await contract.voteFunds(holder2)).to, ZERO);
+    assert.equal((await contract.voteFunds(holder3)).to, ZERO);
+    assert.equal((await contract.voteFunds(holder4)).to, ZERO);
   });
 
-  it('only allows holders to unapprove requests', async function () {
-    await expectRevert(contract.unapproveWithdraw({ from: holder9 }), 'No shares');
-  });
+  it('cancels requestFunds vote when any disagree', async function () {
+    await contract.setOfficers([holder1, holder2, holder3, holder4]);
+    await contract.send(toWei(10), { from: holder5 });
 
-  it('requires a request approved before unapproving', async function () {
-    await expectRevert(contract.unapproveWithdraw({ from: holder1 }), 'Not approved');
-  });
+    await contract.requestFunds(holder5, toWei(1), { from: holder1 }); // VOTE
+    transaction = await contract.requestFunds(holder5, 0, { from: holder3 }); // DISAGREE
+    expectEvent(transaction, 'FundsRequestReset');
 
-  it('allows unapproving a request', async function () {
-    await contract.send(toWei(2), { from: holder9 });
-    await contract.requestWithdraw(toWei(1), { from: holder4 });
-    await contract.approveWithdraw({ from: holder1 });
-    await contract.unapproveWithdraw({ from: holder1 });
-    assert.equal((await contract.totalApproval()).toNumber(), shares[4]);
-  });
+    // CHECK STILL UNCHANGED
+    assert.equal(fromWei(await web3.eth.getBalance(contract.address)), 10);
 
-  it('unapproving own request cancels and resets', async function () {
-    await contract.send(toWei(2), { from: holder9 });
-    await contract.requestWithdraw(toWei(1), { from: holder4 });
-    await contract.unapproveWithdraw({ from: holder4 });
-
-    assert.equal(await contract.withdrawTo(), '0x0000000000000000000000000000000000000000');
-    assert.equal(await contract.withdrawAmount(), '0');
-    assert.equal(await contract.withdrawExpires(), '0');
-    assert.equal((await contract.holder(holder4)).approved, '0');
-  });
-
-  it('pays out once request is approved', async function () {
-    await contract.send(toWei(2), { from: holder9 });
-    await contract.requestWithdraw(toWei(1), { from: holder1 });
-    let bal = await web3.eth.getBalance(holder1) / toWei(1);
-    await contract.approveWithdraw({ from: holder2 });
-    await contract.approveWithdraw({ from: holder3 });
-    bal = (await web3.eth.getBalance(holder1)) / toWei(1) - bal;
-    assert.equal(bal.toFixed(2), 1);
-  });
-
-  it('resets request and votes once payment complete', async function () {
-    await contract.send(toWei(2), { from: holder9 });
-    await contract.requestWithdraw(toWei(1), { from: holder1 });
-    await contract.approveWithdraw({ from: holder2 });
-    await contract.approveWithdraw({ from: holder3 });
-
-    assert.equal(await contract.withdrawTo(), '0x0000000000000000000000000000000000000000');
-    assert.equal(await contract.withdrawAmount(), '0');
-    assert.equal(await contract.withdrawExpires(), '0');
-
-    assert.equal((await contract.holder(holder1)).approved, '0');
-    assert.equal((await contract.holder(holder2)).approved, '0');
-    assert.equal((await contract.holder(holder3)).approved, '0');
-    assert.equal((await contract.totalApproval()), '0');
-  });
-
-  it('resets request and votes once request expires', async function () {
-    await contract.send(toWei(2), { from: holder9 });
-    await contract.requestWithdraw(toWei(1), { from: holder4 });
-    await timeTravel(one_day);
-    await contract.approveWithdraw({ from: holder2 });
-
-    assert.equal(await contract.withdrawTo(), '0x0000000000000000000000000000000000000000');
-    assert.equal(await contract.withdrawAmount(), '0');
-    assert.equal(await contract.withdrawExpires(), '0');
-    assert.equal((await contract.holder(holder2)).approved, '0');
-  });
-
-  it('allows new request once previous has expired', async function () {
-    await contract.send(toWei(3), { from: holder9 });
-    await contract.requestWithdraw(toWei(1), { from: holder4 });
-
-    assert.equal(await contract.withdrawTo(), holder4);
-    assert.equal(fromWei(await contract.withdrawAmount()), 1);
-
-    await timeTravel(one_day);
-    await contract.requestWithdraw(toWei(2), { from: holder2 });
-
-    assert.equal(await contract.withdrawTo(), holder2);
-    assert.equal(fromWei(await contract.withdrawAmount()), 2);
+    // RESET VOTERS
+    assert.equal((await contract.voteFunds(holder1)).to, ZERO);
+    assert.equal((await contract.voteFunds(holder2)).to, ZERO);
+    assert.equal((await contract.voteFunds(holder3)).to, ZERO);
+    assert.equal((await contract.voteFunds(holder4)).to, ZERO);
   });
 });

@@ -28,7 +28,7 @@ contract OdysseyRewards is RewardsTracker {
 
   mapping (address => Row) public holder;
 
-  uint256 public minimumBalance = 10_000_000 ether; // must hold 10,000,000+ tokens
+  uint256 public minimumBalance = 15_000_000 ether; // must hold 10,000,000+ tokens
   uint256 public waitingPeriod = 6 hours;
   bool public isStakingOn = false;
   uint256 public totalTracked = 0;
@@ -59,7 +59,7 @@ contract OdysseyRewards is RewardsTracker {
     waitPeriodSeconds = waitingPeriod;
   }
 
-  function getReportAccount(address account) external view returns (bool excluded, uint256 indexOf, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours, uint256 stakedDays) {
+  function getReportAccount(address account) external view returns (bool excluded, uint256 indexOf, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours) {
     excluded = (holder[account].excluded > 0);
     indexOf = excluded ? 0 : tokenHoldersMap.getIndexOfKey(account).toUint256Safe();
     tokens = excluded ? 0 : unstakedBalanceOf(account);
@@ -68,15 +68,6 @@ contract OdysseyRewards is RewardsTracker {
     rewardsEarned = getAccumulated(account);
     rewardsClaimed = withdrawnRewards[account];
     claimHours = excluded ? 0 : ageInHours(holder[account].claimed);
-    stakedDays = excluded ? 0 : ageInDays(holder[account].staked);
-  }
-
-  function isStakable(address account) public view returns(bool) {
-    return (isStakingOn && holder[account].excluded==0 && unstakedBalanceOf(account)>=minimumBalance);
-  }
-
-  function isStaked(address account) external view returns(bool) {
-    return (holder[account].staked > 0);
   }
 
   function processClaims(uint256 gas) external onlyOwner {
@@ -145,16 +136,6 @@ contract OdysseyRewards is RewardsTracker {
     waitingPeriod = inSeconds;
   }
 
-  function stakeAccount(address account, bool setting) external onlyOwner {
-    if (setting) { // TURNING ON
-      require(isStakable(account), 'Rewards staking not available');
-      require(holder[account].staked==0, 'Value unchanged'); // ONLY CHECK IF TURNING ON
-    }
-    holder[account].staked = setting ? stamp() : 0;
-    holder[account].percent = 40;
-    putWeighted(account);
-  }
-
   function unstakedBalanceOf(address account) public view returns(uint256){
     return tokenHoldersMap.get(account);
   }
@@ -201,6 +182,10 @@ contract OdysseyRewards is RewardsTracker {
     return stamped==0 ? 0 : (stamp() - stamped) / 1 hours;
   }
 
+  function ageInWeeks(uint32 stamped) private view returns (uint32) {
+    return ageInDays(stamped) / 7;
+  }
+
   function canClaim(uint48 lastClaimTime) private view returns (bool) {
     if (lastClaimTime > block.timestamp) return false;
     return block.timestamp.sub(lastClaimTime) >= waitingPeriod;
@@ -229,10 +214,12 @@ contract OdysseyRewards is RewardsTracker {
     super.withdrawFunds(account);
   }
 
-  function stakePercent(uint32 stamped) internal view returns (uint32) {
+  function stakePercent(address account) internal view returns (uint32) {
     if (!isStakingOn) return 100;
-    uint32 age = ageInDays(stamped);
-    return (age > 29) ? 100 : 40 + 2 * age;
+    uint32 stamped = holder[account].sold;
+    if (stamped==0) stamped = holder[account].added;
+    uint32 age = ageInWeeks(stamped);
+    return (age > 4) ? 100 : 40 + 15 * age;
   }
 
   function stamp() private view returns (uint32) {
@@ -249,7 +236,7 @@ contract OdysseyRewards is RewardsTracker {
   }
 
   function putWeighted(address account) private {
-    holder[account].percent = stakePercent(holder[account].staked);
+    holder[account].percent = stakePercent(account);
     putBalance(account, weightedBalance(account));
   }
 
@@ -260,7 +247,7 @@ contract OdysseyRewards is RewardsTracker {
   }
 
   function updatedWeightedBalance(address account) internal {
-    if (holder[account].percent==stakePercent(holder[account].staked)) return; // NO CHANGE
+    if (holder[account].percent==stakePercent(account)) return; // NO CHANGE
     putWeighted(account); // REWEIGHT TOKENS
   }
 }

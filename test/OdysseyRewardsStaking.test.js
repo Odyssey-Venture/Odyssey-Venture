@@ -1,7 +1,7 @@
 // test/Odyssey.test.js
 const OdysseyRewards = artifacts.require('./OdysseyRewards.sol');
 
-const { expectEvent, expectRevert } = require('@openzeppelin/test-helpers');
+const { expectRevert } = require('@openzeppelin/test-helpers');
 
 var chai = require('chai');
 
@@ -28,15 +28,6 @@ function showData(data) {
   Object.keys(data).forEach(function(key) {
     if (key.length > 2) console.log(key, data[key].toString());
   });
-}
-
-function dumpEvents(transaction, event) {
-  for (const log of transaction.logs) {
-    if (log.event==event) {
-      log.args.name = log.event;
-      showData(log.args);
-    }
-  }
 }
 
 function findWithdraw(transaction, account) {
@@ -77,7 +68,6 @@ contract('OdysseyRewards', function (accounts) {
   const [owner, holder1, holder2, holder3, holder4, holder5, holder6, holder7, holder8, holder9] = accounts;
   let contract;
   let transaction;
-  let uniswapV2Pair;
 
   const wallets = {
     project: '0xfB0f7207B2e682c8a7A6bdb2b2012a395a653584',
@@ -101,85 +91,45 @@ contract('OdysseyRewards', function (accounts) {
     assert.isTrue(await contract.isStakingOn());
   });
 
-  it('allows only owner to stake an account', async function () {
-    await expectRevert(contract.stakeAccount(holder1, true, { from: holder1 }), 'Ownable: caller is not the owner');
-    assert.isFalse(await contract.isStaked(holder1));
-  });
-
-  it('requires contract level staking on for a holder to stake', async function () {
-    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
-    await expectRevert(contract.stakeAccount(holder1, true, { from: owner }), 'Rewards staking not available');
-    assert.isFalse(await contract.isStaked(holder1));
-    await contract.setStaking(true, { from: owner });
-    await contract.stakeAccount(holder1, true, { from: owner });
-    assert.isTrue(await contract.isStaked(holder1));
-  });
-
-  it('requires holder over max to begin staking', async function () {
-    await contract.setStaking(true, { from: owner });
-    await expectRevert(contract.stakeAccount(holder1, true, { from: owner }), 'Rewards staking not available');
-    assert.isFalse(await contract.isStaked(holder1));
-    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
-    await contract.stakeAccount(holder1, true, { from: owner });
-    assert.isTrue(await contract.isStaked(holder1));
-  });
-
-  it('requires holder not be excluded to begin staking', async function () {
-    await contract.setStaking(true, { from: owner });
-    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
-    await contract.setExcludedAddress(holder1, { from: owner });
-    await expectRevert(contract.stakeAccount(holder1, true, { from: owner }), 'Rewards staking not available');
-    assert.isFalse(await contract.isStaked(holder1));
-    await contract.setIncludedAddress(holder1, toWei(10_000_000), { from: owner });
-    await contract.stakeAccount(holder1, true, { from: owner });
-    assert.isTrue(await contract.isStaked(holder1));
-  });
-
   it('gives max rewards when staking is off', async function () {
-    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
+    await contract.trackBuy(holder1, toWei(15_000_000), { from: owner });
     let data = await contract.getReportAccount(holder1);
-    assert.equal(data.tokens, toWei(10_000_000));
+    assert.equal(data.tokens, toWei(15_000_000));
     assert.equal(data.stakedPercent, '100');
-    assert.equal(data.stakedTokens, toWei(10_000_000));
-    assert.equal(data.stakedDays, '0');
+    assert.equal(data.stakedTokens, toWei(15_000_000));
   });
 
   it('gives variable rewards when staking is on', async function () {
     await contract.setStaking(true, { from: owner });
-    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
+    await contract.trackBuy(holder1, toWei(15_000_000), { from: owner });
     let data = await contract.getReportAccount(holder1);
-    assert.equal(data.tokens, toWei(10_000_000));
+    assert.equal(data.tokens, toWei(15_000_000));
     assert.equal(data.stakedPercent, '40');
-    assert.equal(data.stakedTokens, toWei(4_000_000));
-    assert.equal(data.stakedDays, '0');
+    assert.equal(data.stakedTokens, toWei(6_000_000));
   });
 
   it('increases variable rewards based on length of stake', async function () {
     await contract.setStaking(true, { from: owner });
-
-    await contract.trackBuy(holder2, toWei(10_000_000), { from: owner });
-    await contract.stakeAccount(holder2, true, { from: owner });
+    await contract.trackBuy(holder2, toWei(15_000_000), { from: owner });
 
     await timeTravel(one_day * 31); // FULLY STAKED ACCOUNT2
     transaction = await contract.processClaims(200_000); // UPDATES STAKING %S
     let data = await contract.getReportAccount(holder2);
     assert.equal(data.stakedPercent, '100');
-    assert.equal(data.stakedTokens, toWei(10_000_000));
+    assert.equal(data.stakedTokens, toWei(15_000_000));
     let stake2 = data.stakedTokens;
     let ratios = 0;
     let funds = 0;
 
-    await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
-    await contract.stakeAccount(holder1, true, { from: owner });
+    await contract.trackBuy(holder1, toWei(15_000_000), { from: owner });
 
     let stakedPercent = 40;
-    let tokens = 10_000_000;
+    let tokens = 15_000_000;
     let stakedTokens = 0;
     let total = 0;
-    for (let idx=0;idx<35;idx++) {
+    for (let idx=0;idx<4;idx++) {
       stakedTokens = tokens * stakedPercent / 100;
-      data = await contract.getReportAccount(holder1); // showData(data);
-      assert.equal(data.stakedDays.toNumber(), idx);
+      data = await contract.getReportAccount(holder1);
       assert.equal(data.stakedPercent.toNumber(), stakedPercent);
       assert.equal(data.stakedTokens, toWei(stakedTokens));
       total = stake2 / toWei(1) + data.stakedTokens / toWei(1);
@@ -195,23 +145,20 @@ contract('OdysseyRewards', function (accounts) {
         'holder', funds.padStart(6, ' '),
         'full stake holder', findWithdraw(transaction, holder2).padStart(6, ' ')
       );
-      await timeTravel(one_day);
+      await timeTravel(one_day * 7);
       await contract.processClaims(200_000); // UPDATES STAKING %S
-      stakedPercent += 2;
+      stakedPercent += 15;
       if (stakedPercent > 100) stakedPercent = 100;
     }
   });
 
-  it('increases variable rewards based on length of stake', async function () {
+  it('increases variable rewards based on length of last sell', async function () {
     await contract.setStaking(true, { from: owner });
     let cnt = 9;
     for (let jdx=1;jdx<=cnt;jdx++) {
-      await contract.trackBuy(accounts[jdx], toWei(10_000_000), { from: owner });
-      await contract.stakeAccount(accounts[jdx], true, { from: owner });
+      await contract.trackBuy(accounts[jdx], toWei(100_000_000), { from: owner });
       await timeTravel(six_hours * (10 - jdx));
     }
-    await contract.stakeAccount(holder9, false, { from: owner });
-    console.log('  * Holder 9 is unstaked');
     await contract.processClaims(800_000); // UPDATES STAKING %S
     let data;
     let ratios = 0;
@@ -254,17 +201,12 @@ contract('OdysseyRewards', function (accounts) {
 
       await timeTravel(one_day);
 
-      if (rando==0 && Math.random() < .1) {
+      if (Math.random() < .07) {
         rando = Math.ceil(Math.random() * 8)+1;
         if (rando > 8) rando = 4;
-        await contract.stakeAccount(accounts[rando], false, { from: owner });
-        console.log('  * Holder ', rando, ' is unstaked');
-      }
+        await contract.trackSell(accounts[rando], toWei(15_000_000), { from: owner });
+        console.log('  * Holder ', rando, ' has sold');
 
-      if (rando!=0 && Math.random() < .2) {
-        await contract.stakeAccount(accounts[rando], true, { from: owner });
-        console.log('  * Holder ', rando, ' is staked');
-        rando = 0;
       }
 
       await contract.processClaims(800_000); // UPDATES STAKING %S
