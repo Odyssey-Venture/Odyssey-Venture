@@ -21,9 +21,9 @@ to automatically earn BNB rewards that increase over time based on their last se
 market cap of the token. Sell fees are split between BNB rewards to holders, BNB
 liquidity pairs locked in the contract, and the project wallet. Fees are designed to
 boost liquidity and stabilize the token price while the market cap is low and accelerate
-development of the project roadmap while at the same time providing modest returns
-to token holders. As the market cap rises, fees will decrease to reflect the success
-of the token and generously reward holders.
+development of the project roadmap, while at the same time providing generous returns
+to token holders. As the market cap rises, fees will adjust to reflect the success
+of the token and reward diamond handed holders.
 
 #### Selling fees by Market Cap in BNB `*`
 
@@ -41,8 +41,8 @@ over  512,000 BNB        4%           -         -      4%        8M tokens
 ```
 
 `*` The Market Cap in BNB is calculated when tokens are converted into BNB to fund the
-rewards tracker. The calculated level must remain the same for 3 consecutive readings
-before the contract will change to the new fee level.
+rewards tracker. The calculated level must remain the same for *3 consecutive readings*
+before the new fee level will take effect.
 
 * The Market Cap in BNB is calculated as `BNB from sale * Total Supply / tokens sold`
 * Fees and market cap can never be changed by the owner.
@@ -53,9 +53,10 @@ before the contract will change to the new fee level.
 Rewards tokens collected from sell fees are converted into BNB. Holders meeting the
 minimum required balance will automatically earn a share of these rewards. Rewards are
 earned proportionate to the holder's eligible tokens in the pool of all eligible tokens.
-Any holder meeting the minimum requirement will start with 40% of their tokens added to
-the pool of tracked tokens. This amount increases by 15% for each week the holder goes
-without selling until 100% is reached.
+Any holder with the minimum balance will start with 40% of their tokens added to the pool
+of tokens tracked. This amount will increased by 15% for each week the holder goes without
+selling until 100% is reached and they are fully vested. Any reduction of tokens, either
+by selling or transferring, will drop back to 40% and restart the vesting process.
 
 * The percent of tokens eligible to earn rewards is `40% + 15% * weeks staked` capped at 100%.
 
@@ -128,14 +129,7 @@ Displays summary report for a holder account in the rewards system.
 
 ## Holder Only Functions
 
-`*` In order to call these functions the account must provide gas.
-
-`setRewardsStaking`
-
-Allows a holder to turn staking on or off for their account. Holder must supply their wallet address
-as an extra precaution against accidentally setting this option. Once turned on the holder cannot reduce
-the number of tokens held until turned back off. Once turned off the holder will need to begin the
-staking process anew from day 1.
+`*` In order to call these functions gas must provided.
 
 `withdrawRewards`
 Allows a holder to manually withdraw pending rewards and update their staking position in the rewards
@@ -173,7 +167,7 @@ support additional token features in the future.
 Allows owner to change the amount of gas used during auto-processing of claims.
 
 * Gas for auto-processing defaults to 300,000 wei and can be changed to a value
-between 250,000 and 500,000 wei.
+between 250,000 and 750,000 wei.
 
 `setPresale`
 
