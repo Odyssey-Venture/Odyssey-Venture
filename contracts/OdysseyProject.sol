@@ -237,7 +237,7 @@ contract OdysseyProject is RewardsTracker {
   }
 
   function setMinimumBalance(uint256 balance) external onlyOfficer {
-    require(balance != minimumBalance, 'Value unchanged');
+    require(balance != minimumBalance, "Value unchanged");
 
     emit MinimumBalanceChanged(minimumBalance, balance);
     minimumBalance = balance;

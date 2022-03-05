@@ -78,8 +78,8 @@ contract Odyssey is ERC20, Ownable {
     isFeeless[address(this)] = true;
     isFeeless[projectWallet] = true;
 
-    // odysseyRewards = new OdysseyRewards("OdysseyRewards", "ODSYRV1");
-    // setDefaultRewardsExclusions();
+    odysseyRewards = new OdysseyRewards("OdysseyRewards", "ODSYRV1");
+    setDefaultRewardsExclusions();
     setFeesByLevel(1);
 
     _mint(address(owner()), FINAL_SUPPLY);
@@ -90,16 +90,11 @@ contract Odyssey is ERC20, Ownable {
     emit FundsReceived(msg.sender, msg.value);
   }
 
-  modifier requireTracker() {
-    require(address(odysseyRewards)!=address(0), "RewardsTracker not set");
-    _;
-  }
-
   function balanceOfLiquidity() external view returns(uint256) {
     return IUniswapV2Pair(uniswapV2Pair).balanceOf(address(this));
   }
 
-  function openToPublic() external requireTracker onlyOwner { // NO GOING BACK
+  function openToPublic() external onlyOwner { // NO GOING BACK
     require(address(this).balance > 0, "Must have bnb to pair for launch");
     require(balanceOf(address(this)) > 0, "Must have tokens to pair for launch");
 
@@ -165,19 +160,19 @@ contract Odyssey is ERC20, Ownable {
   // *************************************
   // FUNCTIONS DELEGATED TO RewardsTracker
 
-  function getRewardsReport() external view requireTracker returns (uint256 holderCount, bool stakingOn, uint256 totalTokensTracked, uint256 totalTokensStaked, uint256 totalRewardsPaid, uint256 requiredBalance, uint256 waitPeriodSeconds) {
+  function getRewardsReport() external view returns (uint256 holderCount, bool stakingOn, uint256 totalTokensTracked, uint256 totalTokensStaked, uint256 totalRewardsPaid, uint256 requiredBalance, uint256 waitPeriodSeconds) {
     return odysseyRewards.getReport();
   }
 
-  function getRewardsReportAccount(address account) external view requireTracker returns (bool excluded, uint256 indexOf, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours) {
+  function getRewardsReportAccount(address account) external view returns (bool excluded, uint256 indexOf, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours) {
     return odysseyRewards.getReportAccount(account);
   }
 
-  function processRewardsClaims() external requireTracker onlyOwner {
+  function processRewardsClaims() external onlyOwner {
     try odysseyRewards.processClaims(gasLimit) {} catch {}
   }
 
-  function setRewardsExcludedAddress(address account, bool exclude) external requireTracker onlyOwner {
+  function setRewardsExcludedAddress(address account, bool exclude) external onlyOwner {
     if (exclude) {
       odysseyRewards.setExcludedAddress(account);
     } else {
@@ -185,22 +180,22 @@ contract Odyssey is ERC20, Ownable {
     }
   }
 
-  function setRewardsMinimumBalance(uint256 amount) external requireTracker onlyOwner {
+  function setRewardsMinimumBalance(uint256 amount) external onlyOwner {
     require(amount >= 1_000_000 && amount <= 15_000_000, "Value invalid");
     require(odysseyRewards.minimumBalance() > (amount * 1 ether), "Value cannot increase");
 
     odysseyRewards.setMinimumBalance(amount * 1 ether);
   }
 
-  function setRewardsStaking(bool setting) external requireTracker onlyOwner {
+  function setRewardsStaking(bool setting) external onlyOwner {
     odysseyRewards.setStaking(setting);
   }
 
-  function setRewardsWaitingPeriod(uint256 waitSeconds) external requireTracker onlyOwner {
+  function setRewardsWaitingPeriod(uint256 waitSeconds) external onlyOwner {
     odysseyRewards.setWaitingPeriod(waitSeconds);
   }
 
-  function withdrawRewards() external requireTracker {
+  function withdrawRewards() external {
     odysseyRewards.withdrawFunds(payable(msg.sender));
   }
 
@@ -305,10 +300,6 @@ contract Odyssey is ERC20, Ownable {
     return flag;
   }
 
-  function hasTracker() private view returns(bool) {
-    return address(odysseyRewards)!=address(0);
-  }
-
   function processAccumulatedTokens() private {
     if (balanceOf(address(this)) >= swapThreshold) swapAndAddLiquidity(swapThreshold);
     if (balanceOf(address(this)) >= swapThreshold) swapAndSendToRewardsTracker(swapThreshold);
@@ -378,9 +369,7 @@ contract Odyssey is ERC20, Ownable {
 
   function transferAndUpdateRewardsTracker(address from, address to, uint256 amount) private {
     super._transfer(from, to, amount);
-    if (hasTracker()) {
-      try odysseyRewards.trackSell(payable(from), balanceOf(from)) {} catch {}
-      try odysseyRewards.trackBuy(payable(to), balanceOf(to)) {} catch {}
-    }
+    try odysseyRewards.trackSell(payable(from), balanceOf(from)) {} catch {}
+    try odysseyRewards.trackBuy(payable(to), balanceOf(to)) {} catch {}
   }
 }

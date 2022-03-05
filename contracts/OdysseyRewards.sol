@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.11;
 
-import './RewardsTracker.sol';
-import './IterableMapping.sol';
+import "./RewardsTracker.sol";
+import "./IterableMapping.sol";
 
 contract OdysseyRewards is RewardsTracker {
   using SafeMath for uint256;
@@ -100,7 +100,7 @@ contract OdysseyRewards is RewardsTracker {
   }
 
   function setExcludedAddress(address account) external onlyOwner {
-    require(holder[account].excluded==0, 'Value unchanged');
+    require(holder[account].excluded==0, "Value unchanged");
 
     holder[account].excluded = stamp();
     putBalance(account, 0);
@@ -110,7 +110,7 @@ contract OdysseyRewards is RewardsTracker {
 
   // NEEDED TO REESTABLISH BALANCE WHEN INCLUDING SINCE EXCLUDING ZEROES IT OUT
   function setIncludedAddress(address account, uint256 balance) external onlyOwner {
-    require(holder[account].excluded>0, 'Value unchanged');
+    require(holder[account].excluded>0, "Value unchanged");
 
     holder[account].excluded = 0;
 
@@ -122,15 +122,15 @@ contract OdysseyRewards is RewardsTracker {
   }
 
   function setMinimumBalance(uint256 newBalance) external onlyOwner {
-    require(newBalance != minimumBalance, 'Value unchanged');
+    require(newBalance != minimumBalance, "Value unchanged");
 
     emit MinimumBalanceChanged(minimumBalance, newBalance);
     minimumBalance = newBalance;
   }
 
   function setWaitingPeriod(uint256 inSeconds) external onlyOwner {
-    require(inSeconds != waitingPeriod, 'Value unchanged');
-    require(inSeconds >= 1 hours && inSeconds <= 1 days, 'Value invalid');
+    require(inSeconds != waitingPeriod, "Value unchanged");
+    require(inSeconds >= 1 hours && inSeconds <= 1 days, "Value invalid");
 
     emit WaitingPeriodChanged(waitingPeriod, inSeconds);
     waitingPeriod = inSeconds;
@@ -141,7 +141,7 @@ contract OdysseyRewards is RewardsTracker {
   }
 
   function setStaking(bool setting) external onlyOwner {
-    require(isStakingOn!=setting, 'Value unchanged');
+    require(isStakingOn!=setting, "Value unchanged");
     isStakingOn = setting;
     emit StakingChanged(!setting, setting);
   }
@@ -162,8 +162,8 @@ contract OdysseyRewards is RewardsTracker {
   }
 
   function withdrawFunds(address payable account) public override onlyOwner { // EMITS EVENT
-    require(canClaim(holder[account].claimed), 'Wait time active');
-    require(getPending(account) > 0, 'No funds');
+    require(canClaim(holder[account].claimed), "Wait time active");
+    require(getPending(account) > 0, "No funds");
 
     updatedWeightedBalance(account);
 
