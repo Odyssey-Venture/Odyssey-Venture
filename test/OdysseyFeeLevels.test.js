@@ -108,11 +108,20 @@ contract('Odyssey', function (accounts) {
                 ' / Liquidity', event.args.feeLiquidity.toNumber(),
                 ' / swapAt', fromWei(event.args.swapAt) * 1.0
               );
-              return;
+              break;
             }
           }
         }
       }
+
+      let cnt = await tracker.records();
+      let sum = 0;
+      for (let idx=1;idx<=cnt;idx++) {
+        let report = await contract.getRewardsReportAccountAt(idx);
+        console.log(idx, report.index.toNumber(), fromWei(report.tokens), fromWei(report.rewardsClaimed));
+        sum += fromWei(report.rewardsClaimed) * 1;
+      }
+      console.log(sum);
     });
   }
 });

@@ -180,19 +180,19 @@ contract('OdysseyRewards', function (accounts) {
 
   it('tracks accounts that are over minimum balance', async function () {
     await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
-    assert.equal(await contract.getHolderCount(), 1);
+    assert.equal(await contract.records(), 1);
   });
 
   it('does not track accounts under minimum balance', async function () {
     await contract.trackBuy(holder1, toWei(1_000), { from: owner });
-    assert.equal(await contract.getHolderCount(), 0);
+    assert.equal(await contract.records(), 0);
   });
 
   it('stops tracking accounts that fall under minimum balance', async function () {
     await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
-    assert.equal(await contract.getHolderCount(), 1);
+    assert.equal(await contract.records(), 1);
     await contract.trackSell(holder1, toWei(1_000), { from: owner });
-    assert.equal(await contract.getHolderCount(), 0);
+    assert.equal(await contract.records(), 0);
   });
 
   it('sums totalsTracked and matches rewards balance', async function () {
@@ -242,21 +242,20 @@ contract('OdysseyRewards', function (accounts) {
 
     let report = await contract.getReportAccount(holder2);
     assert.equal(report.account, holder2);
-    assert.equal(report.index, '1');
+    assert.equal(report.index, '2');
 
-    report = await contract.getReportAccountAt(1);
+    report = await contract.getReportAccountAt(2);
     assert.equal(report.account, holder2);
-    assert.equal(report.index, '1');
+    assert.equal(report.index, '2');
   });
 
   it('allows holder to view an account status report', async function () {
-    await contract.trackBuy(holder2, toWei(10_000_000), { from: owner });
     await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
+    await contract.trackBuy(holder2, toWei(10_000_000), { from: owner });
     await contract.send(toWei(2), { from: holder3 });
     await contract.withdrawFunds(holder1);
     let data = await contract.getReportAccount(holder1);
     assert.isFalse(data.excluded);
-    // console.log(data);
     assert.equal(data.index, '1');
     assert.equal(data.tokens, toWei(10_000_000));
     assert.equal(data.stakedPercent, '100');
@@ -272,7 +271,7 @@ contract('OdysseyRewards', function (accounts) {
     await contract.setExcludedAddress(holder1, { from: owner });
     let data = await contract.getReportAccount(holder1);
     assert.isTrue(data.excluded);
-    assert.equal(data.index, '-1');
+    assert.equal(data.index, '0');
     assert.equal(data.tokens, '0');
     assert.equal(data.stakedPercent, '0');
     assert.equal(data.stakedTokens, '0');
@@ -308,50 +307,83 @@ contract('OdysseyRewards', function (accounts) {
     await contract.trackBuy(holder5, toWei(22), { from: owner });
     await contract.trackBuy(holder6, toWei(17), { from: owner });
 
-    assert.equal(await contract.getHolderCount(), 6);
+    assert.equal(await contract.records(), 6);
     assert.equal(await contract.totalBalance(), toWei(100));
-    assert.equal(await contract.lastIndex(), 0);
+    assert.equal(await contract.currentRecord(), 0);
 
-    await contract.send(toWei(25), { from: holder6 });
-    await contract.send(toWei(25), { from: holder7 });
-    await contract.send(toWei(25), { from: holder8 });
-    await contract.send(toWei(25), { from: holder9 });
-
+    let args;
     let before = [
+      await web3.eth.getBalance(holder1),
       await web3.eth.getBalance(holder2),
       await web3.eth.getBalance(holder3),
       await web3.eth.getBalance(holder4),
-      await web3.eth.getBalance(holder5)
+      await web3.eth.getBalance(holder5),
+      await web3.eth.getBalance(holder6)
     ];
 
-    transaction = await contract.processClaims(200_000); // 4 iterations
+    await contract.send(toWei(25), { from: owner });
+    transaction = await contract.processClaims(100_000);
     expectEvent(transaction, 'ClaimsProcessed');
-
-    let args = eventArgs(transaction, 'ClaimsProcessed');
-    let iterations = args.iterations.toString();
-    console.log(`Processing cost ${args.gasUsed.toString()}`);
+    args = eventArgs(transaction, 'ClaimsProcessed');
+    console.log(args.iterations.toNumber(), args.claims.toNumber(), args.lastRecord.toNumber());
+    transaction = await contract.processClaims(100_000);
+    expectEvent(transaction, 'ClaimsProcessed');
+    args = eventArgs(transaction, 'ClaimsProcessed');
+    console.log(args.iterations.toNumber(), args.claims.toNumber(), args.lastRecord.toNumber());
+    await timeTravel(six_hours);
+    await contract.send(toWei(25), { from: holder7 });
+    transaction = await contract.processClaims(100_000);
+    expectEvent(transaction, 'ClaimsProcessed');
+    args = eventArgs(transaction, 'ClaimsProcessed');
+    console.log(args.iterations.toNumber(), args.claims.toNumber(), args.lastRecord.toNumber());
+    transaction = await contract.processClaims(100_000);
+    expectEvent(transaction, 'ClaimsProcessed');
+    args = eventArgs(transaction, 'ClaimsProcessed');
+    console.log(args.iterations.toNumber(), args.claims.toNumber(), args.lastRecord.toNumber());
+    await timeTravel(six_hours);
+    await contract.send(toWei(25), { from: holder8 });
+    transaction = await contract.processClaims(100_000);
+    expectEvent(transaction, 'ClaimsProcessed');
+    args = eventArgs(transaction, 'ClaimsProcessed');
+    console.log(args.iterations.toNumber(), args.claims.toNumber(), args.lastRecord.toNumber());
+    transaction = await contract.processClaims(100_000);
+    expectEvent(transaction, 'ClaimsProcessed');
+    args = eventArgs(transaction, 'ClaimsProcessed');
+    console.log(args.iterations.toNumber(), args.claims.toNumber(), args.lastRecord.toNumber());
+    await timeTravel(six_hours);
+    await contract.send(toWei(25), { from: holder9 });
+    transaction = await contract.processClaims(100_000);
+    expectEvent(transaction, 'ClaimsProcessed');
+    args = eventArgs(transaction, 'ClaimsProcessed');
+    console.log(args.iterations.toNumber(), args.claims.toNumber(), args.lastRecord.toNumber());
+    transaction = await contract.processClaims(100_000);
+    expectEvent(transaction, 'ClaimsProcessed');
+    args = eventArgs(transaction, 'ClaimsProcessed');
+    console.log(args.iterations.toNumber(), args.claims.toNumber(), args.lastRecord.toNumber());
 
     let after = [
+      await web3.eth.getBalance(holder1),
       await web3.eth.getBalance(holder2),
       await web3.eth.getBalance(holder3),
       await web3.eth.getBalance(holder4),
-      await web3.eth.getBalance(holder5)
+      await web3.eth.getBalance(holder5),
+      await web3.eth.getBalance(holder6)
     ];
 
     after[0] = fromWei(after[0] - before[0]);
     after[1] = fromWei(after[1] - before[1]);
     after[2] = fromWei(after[2] - before[2]);
     after[3] = fromWei(after[3] - before[3]);
+    after[4] = fromWei(after[4] - before[4]);
+    after[5] = fromWei(after[5] - before[5]);
 
-    assert.equal(after[0], 15);
-    expectEvent(transaction, 'FundsWithdrawn', { account: holder2, amount: toWei(15) });
-    assert.equal(after[1], 25);
-    expectEvent(transaction, 'FundsWithdrawn', { account: holder3, amount: toWei(25) });
-    assert.equal(after[2], 11);
-    expectEvent(transaction, 'FundsWithdrawn', { account: holder4, amount: toWei(11) });
-    if (iterations>3) {
-      assert.equal(after[3], 22);
-      expectEvent(transaction, 'FundsWithdrawn', { account: holder5, amount: toWei(22) });
-    }
+    console.log(after);
+
+    assert.equal(after[0], 10);
+    assert.equal(after[1], 15);
+    assert.equal(after[2], 25);
+    assert.equal(after[3], 11);
+    assert.equal(after[4], 22);
+    assert.equal(after[5], 17);
   });
 });

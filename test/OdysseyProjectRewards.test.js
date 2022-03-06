@@ -82,24 +82,23 @@ contract('OdysseyProject', function (accounts) {
     await contract.setToken(odyssey.address, {from: owner });
     await odyssey.transfer(holder1, toWei(MIN_BALANCE), { from: owner });
 
-    report = await contract.getReportAccount(holder1);
+    report = await contract.getReportAccountAt(2);
     assert.equal(report.account, holder1);
-    assert.equal(report.index, 1);
+    assert.equal(report.index, 2);
     assert.equal(report.shares, '2000');
     assert.equal(report.dividendsEarned, '0');
     assert.equal(report.dividendsClaimed, '0');
 
-    report = await contract.getReportAccountAt(1);
+    report = await contract.getReportAccount(holder1);
     assert.equal(report.account, holder1);
-    assert.equal(report.index, 1);
+    assert.equal(report.index, 2);
     assert.equal(report.shares, '2000');
     assert.equal(report.dividendsEarned, '0');
     assert.equal(report.dividendsClaimed, '0');
   });
 
   it('requires address or index to exist for reporting', async function () {
-    await expectRevert(contract.getReportAccount(holder9), 'Value invalid');
-    await expectRevert(contract.getReportAccountAt(9), 'Value invalid');
+    await expectRevert(contract.getReportAccountAt(100), 'Value invalid');
   });
 
   it('distributes funds', async function () {
@@ -173,4 +172,41 @@ contract('OdysseyProject', function (accounts) {
     assert.equal(fromWei(report.dividendsEarned), '6.02');
   });
 
+  it('processes all shareholder', async function () {
+    await contract.setToken(odyssey.address, {from: owner });
+    for (let idx=1;idx<shareholders.length;idx++) {
+      await odyssey.transfer(shareholders[idx], toWei(MIN_BALANCE), { from: owner });
+    }
+
+    await contract.send(toWei(301), { from: holder9 }); // 10K should pay back 30 BNB so send in 300 since tax is 10%
+    report = await contract.getReport();
+    assert.equal(fromWei(report.totalDividends), '30.10');
+    report = await contract.getReportAccount(holder1);
+    assert.equal(fromWei(report.dividendsEarned), '6.02'); // holder1 paid 2k so should get back about 6 BNB
+
+    // SENDING IN MORE BNB SHOULD NO LONG AFFECT DIVIDENDS
+    await contract.send(toWei(10), { from: holder9 });
+    report = await contract.getReport();
+    assert.equal(fromWei(report.totalDividends), '30.10');
+    report = await contract.getReportAccount(holder1);
+    assert.equal(fromWei(report.dividendsEarned), '6.02');
+
+    // SENDING IN MORE BNB SHOULD NO LONG AFFECT DIVIDENDS
+    await contract.send(toWei(10), { from: holder9 });
+    report = await contract.getReport();
+    assert.equal(fromWei(report.totalDividends), '30.10');
+    report = await contract.getReportAccount(holder1);
+    assert.equal(fromWei(report.dividendsEarned), '6.02');
+
+    transaction = await contract.processClaims(800_000);
+
+    let cnt = await contract.records();
+    let sum = 0;
+    for (let idx=1;idx<=cnt;idx++) {
+      report = await contract.getReportAccountAt(idx);
+      console.log(idx, report.index.toNumber(), report.shares.toNumber(), fromWei(report.dividendsClaimed));
+      sum += fromWei(report.dividendsClaimed) * 1;
+    }
+    console.log(sum);
+  });
 });

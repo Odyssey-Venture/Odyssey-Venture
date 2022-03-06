@@ -164,11 +164,11 @@ contract Odyssey is ERC20, Ownable {
     return odysseyRewards.getReport();
   }
 
-  function getRewardsReportAccount(address key) external view returns (address account, int index, bool excluded, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours) {
+  function getRewardsReportAccount(address key) external view returns (address account, uint256 index, bool excluded, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours) {
     return odysseyRewards.getReportAccount(key);
   }
 
-  function getRewardsReportAccountAt(uint256 indexOf) external view returns (address account, int index, bool excluded, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours) {
+  function getRewardsReportAccountAt(uint256 indexOf) external view returns (address account, uint256 index, bool excluded, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours) {
     return odysseyRewards.getReportAccountAt(indexOf);
   }
 

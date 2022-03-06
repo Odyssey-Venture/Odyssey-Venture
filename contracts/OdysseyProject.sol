@@ -8,16 +8,15 @@ contract OdysseyProject is RewardsTracker {
   using SafeMath for uint256;
   using SafeMathInt for int256;
 
-  struct HolderMap {
-    address[] keys;
-    mapping(address => uint) values;
-    mapping(address => uint) indexOf;
-    mapping(address => bool) inserted;
+  struct Record {
+    uint256 index;
+    uint256 share;
   }
 
-  HolderMap private holderMap;
-
-  uint256 public lastIndex = 0;
+  uint256 public records = 0;
+  uint256 public currentRecord = 0;
+  mapping (uint256 => address) public holderAt;
+  mapping (address => Record) public holder;
 
   Odyssey public odyssey;
 
@@ -72,51 +71,43 @@ contract OdysseyProject is RewardsTracker {
   }
 
   function getReport() public view returns (uint256 holderCount, uint256 totalDollars, uint256 totalDividends) {
-    holderCount = holderMap.keys.length;
+    holderCount = records;
     totalDollars = totalBalance;
     totalDividends = totalDistributed;
   }
 
   function getReportAccount(address key) public view returns (address account, uint256 index, uint256 shares, uint256 dividendsEarned, uint256 dividendsClaimed) {
-    require(holderMap.inserted[key], "Value invalid");
-
-    return getReportAccountAt(holderMap.indexOf[key]);
-  }
-
-  function getReportAccountAt(uint256 indexOf) public view returns (address account, uint256 index, uint256 shares, uint256 dividendsEarned, uint256 dividendsClaimed) {
-    require(indexOf < holderMap.keys.length, "Value invalid");
-
-    index = indexOf;
-    account = holderMap.keys[indexOf];
+    account = key;
+    index = holder[account].index;
     shares = balanceOf[account];
     dividendsEarned = getAccumulated(account);
     dividendsClaimed = withdrawnRewards[account];
   }
 
-  function processClaims(uint256 gas) external {
-    uint256 keyCount = holderMap.keys.length;
-    if (keyCount == 0) return;
+  function getReportAccountAt(uint256 indexOf) public view returns (address account, uint256 index, uint256 shares, uint256 dividendsEarned, uint256 dividendsClaimed) {
+    require(indexOf > 0 && indexOf <= records, "Value invalid");
 
-    uint256 pos = lastIndex;
+    return getReportAccount(holderAt[indexOf]);
+  }
+
+  function processClaims(uint256 gas) external {
+    if (records==0) return;
+
     uint256 gasUsed = 0;
     uint256 gasLeft = gasleft();
     uint256 iterations = 0;
     uint256 claims = 0;
 
-    while (gasUsed < gas && iterations < keyCount) {
-      pos++;
-      if (pos >= holderMap.keys.length) pos = 0;
-      address account = holderMap.keys[pos];
-      if (pushFunds(payable(account))) claims++;
+    while (gasUsed < gas && iterations <= records) {
+      currentRecord = (currentRecord % records) + 1;
+      if (pushFunds(payable(holderAt[currentRecord]))) claims++;
       iterations++;
       uint256 newGasLeft = gasleft();
       if (gasLeft > newGasLeft) gasUsed = gasUsed.add(gasLeft.sub(newGasLeft));
       gasLeft = newGasLeft;
     }
 
-    lastIndex = pos;
-
-    emit ClaimsProcessed(iterations, claims, lastIndex, gasUsed);
+    emit ClaimsProcessed(iterations, claims, currentRecord, gasUsed);
   }
 
   function replaceContract(address to) external onlyOfficer {
@@ -230,7 +221,7 @@ contract OdysseyProject is RewardsTracker {
       setHolder(wallets[idx], dollars[idx]);
     }
 
-    dividendsInBNB = (totalBalance * 1 ether).div(333); // FOR EACH 1K DOLLARS RETURN 3 BNB TO INVESTORS
+    dividendsInBNB = (totalBalance * 1 ether).div(333); // FOR EACH 1K DOLLARS RETURN 3 BNB TO INVESTORS - ADJUST TO CURRENT BNB PRICE AT LAUNCH
   }
 
   function setOfficers(address[] memory wallets) external onlyOwner {
@@ -278,9 +269,22 @@ contract OdysseyProject is RewardsTracker {
     super.distributeFunds(share);
   }
 
+  function holderGetAt(uint256 index) view internal returns(Record memory) {
+    return holder[holderAt[index]];
+  }
+
+  function holderSet(address key, uint256 share) internal {
+    if (holder[key].index==0) {
+      records++;
+      holderAt[records] = key;
+      holder[key].index = records;
+    }
+    holder[key].share = share;
+  }
+
   function setHolder(address account, uint256 dollars) internal {
     putBalance(account, dollars);
-    holderMapSet(account, dollars);
+    holderSet(account, dollars);
   }
 
   function pushFunds(address payable account) internal returns (bool) {
@@ -299,44 +303,7 @@ contract OdysseyProject is RewardsTracker {
     if (balanceOf[account] > 0 && odyssey.balanceOf(account) < minimumBalance) {
       putBalance(account, 0);
     } else if (balanceOf[account] == 0 && odyssey.balanceOf(account) >= minimumBalance) {
-      putBalance(account, holderMapGet(account));
+      putBalance(account, holder[account].share);
     }
-  }
-
-  // HOLDERMAP FUNCTIONS
-
-  function holderMapGet(address key) internal view returns (uint) {
-    return holderMap.values[key];
-  }
-
-  function holderMapIndex(address key) internal view returns (int) {
-    if (!holderMap.inserted[key]) return -1;
-
-    return int(holderMap.indexOf[key]);
-  }
-
-  function holderMapSet(address key, uint val) internal {
-    if (holderMap.inserted[key]) {
-      holderMap.values[key] = val;
-    } else {
-      holderMap.inserted[key] = true;
-      holderMap.values[key] = val;
-      holderMap.indexOf[key] = holderMap.keys.length;
-      holderMap.keys.push(key);
-    }
-  }
-
-  function holderMapRemove(address key) internal {
-    if (!holderMap.inserted[key]) return;
-
-    delete holderMap.inserted[key];
-    delete holderMap.values[key];
-    uint index = holderMap.indexOf[key];
-    uint lastIdx = holderMap.keys.length - 1;
-    address lastKey = holderMap.keys[lastIdx];
-    holderMap.indexOf[lastKey] = index;
-    delete holderMap.indexOf[key];
-    holderMap.keys[index] = lastKey;
-    holderMap.keys.pop();
   }
 }
