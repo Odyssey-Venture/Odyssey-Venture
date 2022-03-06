@@ -2,7 +2,7 @@
 # Odyssey Token Features
 
 Odyssey token features a unique system of rewards, micro-staking and fees to encourage
-holding for extended periods. All accounts holding at least 10 million tokens are eligible
+holding for extended periods. All accounts holding at least 15 million tokens are eligible
 to automatically earn BNB rewards that increase over time based on their last sell.
 
 ## Total Supply, Max Wallet and Max Sell Amounts
@@ -185,8 +185,8 @@ additional token features in the future.
 
 `setRewardsMinimumBalance`
 
-* The minimum required balance defaults to 10 million and can be changed to any value
-between 5 and 15 million.
+* The minimum required balance defaults to 15 million and can be changed to any value
+between 1 and 15 million.
 
 `setRewardsTracker`
 

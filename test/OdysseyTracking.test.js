@@ -66,7 +66,7 @@ contract('Odyssey', function (accounts) {
   });
 
   it('requires the value of RewardsTracker to change if updated', async function() {
-    await expectRevert(contract.setRewardsTracker(tracker, { from: owner }), 'Value unchanged');
+    await expectRevert(contract.setRewardsTracker(tracker, { from: owner }), "Value unchanged");
   });
 
   it('can read tracker settings', async function() {

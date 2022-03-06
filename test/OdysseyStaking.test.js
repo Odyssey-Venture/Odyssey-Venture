@@ -21,7 +21,7 @@ contract('Odyssey', function (accounts) {
   });
 
   it('requires the value of staking on to change if updated', async function () {
-    await expectRevert(contract.setRewardsStaking(false, { from: owner }), 'Value unchanged');
+    await expectRevert(contract.setRewardsStaking(false, { from: owner }), "Value unchanged");
   });
 
   it('allows owner to toggle staking option for contract', async function () {

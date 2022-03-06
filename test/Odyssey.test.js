@@ -111,7 +111,7 @@ contract('Odyssey', function (accounts) {
   });
 
   it('requires the value of Feeless to change if updated', async function () {
-    await expectRevert(contract.setFeeless(holder1, false, { from: owner }), 'Value unchanged');
+    await expectRevert(contract.setFeeless(holder1, false, { from: owner }), "Value unchanged");
   });
 
   it('allows only owner to add presale wallets', async function () {
@@ -144,7 +144,7 @@ contract('Odyssey', function (accounts) {
   });
 
   it('requires the value of ProjectWallet to change if updated', async function () {
-    await expectRevert(contract.setProjectWallet(wallets.project, { from: owner }), 'Value unchanged');
+    await expectRevert(contract.setProjectWallet(wallets.project, { from: owner }), "Value unchanged");
   });
 
   it('allows owner to update tracker', async function() {
@@ -167,13 +167,13 @@ contract('Odyssey', function (accounts) {
     assert.equal(await contract.gasLimit(), 400_000);
   });
 
-  it('allows owner to set gasLimit between 250k and 500k', async function () {
+  it('allows owner to set gasLimit between 250k and 750k', async function () {
     await expectRevert(contract.setGasLimit(249_999, { from: owner }), 'Value invalid');
-    await expectRevert(contract.setGasLimit(500_001, { from: owner }), 'Value invalid');
+    await expectRevert(contract.setGasLimit(750_001, { from: owner }), 'Value invalid');
   });
 
   it('requires the value of GasLimit to change if updated', async function () {
-    await expectRevert(contract.setGasLimit(300_000, { from: owner }), 'Value unchanged');
+    await expectRevert(contract.setGasLimit(300_000, { from: owner }), "Value unchanged");
   });
 
   it('rejects transfers to zero address', async function() {
@@ -214,7 +214,7 @@ contract('Odyssey', function (accounts) {
   });
 
   it('requires the value of IsStakingOn to change if updated', async function () {
-    await expectRevert(contract.setRewardsStaking(false, { from: owner }), 'Value unchanged');
+    await expectRevert(contract.setRewardsStaking(false, { from: owner }), "Value unchanged");
   });
 
   it('allows owner to toggle staking option', async function () {

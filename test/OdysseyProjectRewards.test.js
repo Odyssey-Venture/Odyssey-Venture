@@ -77,6 +77,31 @@ contract('OdysseyProject', function (accounts) {
     }
   });
 
+  it('allows holder to view report by address or index', async function () {
+    odyssey = await Odyssey.new();
+    await contract.setToken(odyssey.address, {from: owner });
+    await odyssey.transfer(holder1, toWei(MIN_BALANCE), { from: owner });
+
+    report = await contract.getReportAccount(holder1);
+    assert.equal(report.account, holder1);
+    assert.equal(report.index, 1);
+    assert.equal(report.shares, '2000');
+    assert.equal(report.dividendsEarned, '0');
+    assert.equal(report.dividendsClaimed, '0');
+
+    report = await contract.getReportAccountAt(1);
+    assert.equal(report.account, holder1);
+    assert.equal(report.index, 1);
+    assert.equal(report.shares, '2000');
+    assert.equal(report.dividendsEarned, '0');
+    assert.equal(report.dividendsClaimed, '0');
+  });
+
+  it('requires address or index to exist for reporting', async function () {
+    await expectRevert(contract.getReportAccount(holder9), 'Value invalid');
+    await expectRevert(contract.getReportAccountAt(9), 'Value invalid');
+  });
+
   it('distributes funds', async function () {
     odyssey = await Odyssey.new();
     await contract.setToken(odyssey.address, {from: owner });

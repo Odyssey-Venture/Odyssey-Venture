@@ -83,7 +83,7 @@ contract('OdysseyRewards', function (accounts) {
   });
 
   it('requires the value of WaitingPeriod to change if updated', async function () {
-    await expectRevert(contract.setWaitingPeriod(six_hours, { from: owner }), 'Value unchanged');
+    await expectRevert(contract.setWaitingPeriod(six_hours, { from: owner }), "Value unchanged");
   });
 
   it('requires waiting period betweeen 1 hour to 1 day', async function () {
@@ -118,7 +118,7 @@ contract('OdysseyRewards', function (accounts) {
   });
 
   it('requires the value of MinimumBalance to change if updated', async function () {
-    await expectRevert(contract.setMinimumBalance(toWei(10_000_000), { from: owner }), 'Value unchanged');
+    await expectRevert(contract.setMinimumBalance(toWei(10_000_000), { from: owner }), "Value unchanged");
   });
 
   it('allows only owner to exclude account from earning rewards', async function () {
@@ -137,7 +137,7 @@ contract('OdysseyRewards', function (accounts) {
 
   it('requires the value of ExcludedAddress to change if updated', async function () {
     await contract.setExcludedAddress(holder1, { from: owner });
-    await expectRevert(contract.setExcludedAddress(holder1, { from: owner }), 'Value unchanged');
+    await expectRevert(contract.setExcludedAddress(holder1, { from: owner }), "Value unchanged");
   });
 
   it('allows owner to allow account to earn rewards', async function () {
@@ -148,7 +148,7 @@ contract('OdysseyRewards', function (accounts) {
   });
 
   it('requires the value of IncludedAddress to change if updated', async function () {
-    await expectRevert(contract.setIncludedAddress(holder1, 0, { from: owner }), 'Value unchanged');
+    await expectRevert(contract.setIncludedAddress(holder1, 0, { from: owner }), "Value unchanged");
   });
 
   it('zeroes out tracked balance when excluding an account', async function () {
@@ -232,6 +232,23 @@ contract('OdysseyRewards', function (accounts) {
     assert.equal(data.waitPeriodSeconds, six_hours);
   });
 
+  it('requires index to exist for reporting', async function () {
+    await expectRevert(contract.getReportAccountAt(9), 'Value invalid');
+  });
+
+  it('allows holder to view report by address or index', async function () {
+    await contract.trackBuy(holder1, toWei(20_000_000), { from: owner });
+    await contract.trackBuy(holder2, toWei(20_000_000), { from: owner });
+
+    let report = await contract.getReportAccount(holder2);
+    assert.equal(report.account, holder2);
+    assert.equal(report.index, '1');
+
+    report = await contract.getReportAccountAt(1);
+    assert.equal(report.account, holder2);
+    assert.equal(report.index, '1');
+  });
+
   it('allows holder to view an account status report', async function () {
     await contract.trackBuy(holder2, toWei(10_000_000), { from: owner });
     await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
@@ -240,7 +257,7 @@ contract('OdysseyRewards', function (accounts) {
     let data = await contract.getReportAccount(holder1);
     assert.isFalse(data.excluded);
     // console.log(data);
-    assert.equal(data.indexOf, '1');
+    assert.equal(data.index, '1');
     assert.equal(data.tokens, toWei(10_000_000));
     assert.equal(data.stakedPercent, '100');
     assert.equal(data.stakedTokens, toWei(10_000_000));
@@ -255,7 +272,7 @@ contract('OdysseyRewards', function (accounts) {
     await contract.setExcludedAddress(holder1, { from: owner });
     let data = await contract.getReportAccount(holder1);
     assert.isTrue(data.excluded);
-    assert.equal(data.indexOf, '0');
+    assert.equal(data.index, '-1');
     assert.equal(data.tokens, '0');
     assert.equal(data.stakedPercent, '0');
     assert.equal(data.stakedTokens, '0');
@@ -273,12 +290,14 @@ contract('OdysseyRewards', function (accounts) {
 
   it('allows excluded holder withdraw earned rewards', async function () {
     await contract.putBalance(holder1, 1, { from: owner });
-    await contract.send(toWei(1), { from: holder3 });
+    await contract.putBalance(holder2, 1, { from: owner });
+    await contract.send(toWei(2), { from: holder3 });
     await contract.setExcludedAddress(holder1, { from: owner });
     transaction = await contract.withdrawFunds(holder1);
     expectEvent(transaction, 'FundsWithdrawn', { account: holder1, amount: toWei(1) });
+    await contract.send(toWei(1), { from: holder3 });
+    await expectRevert(contract.withdrawFunds(holder1), 'No funds');
   });
-
 
   it('properly bulk processes holders using index', async function () {
     await contract.setMinimumBalance(1, { from: owner });

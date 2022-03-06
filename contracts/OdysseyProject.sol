@@ -3,14 +3,20 @@ pragma solidity ^0.8.11;
 
 import "./Odyssey.sol";
 import "./RewardsTracker.sol";
-import "./IterableMapping.sol";
 
 contract OdysseyProject is RewardsTracker {
   using SafeMath for uint256;
   using SafeMathInt for int256;
-  using IterableMapping for IterableMapping.Map;
 
-  IterableMapping.Map private holdersMap;
+  struct HolderMap {
+    address[] keys;
+    mapping(address => uint) values;
+    mapping(address => uint) indexOf;
+    mapping(address => bool) inserted;
+  }
+
+  HolderMap private holderMap;
+
   uint256 public lastIndex = 0;
 
   Odyssey public odyssey;
@@ -66,28 +72,29 @@ contract OdysseyProject is RewardsTracker {
   }
 
   function getReport() public view returns (uint256 holderCount, uint256 totalDollars, uint256 totalDividends) {
-    holderCount = holdersMap.keys.length;
+    holderCount = holderMap.keys.length;
     totalDollars = totalBalance;
     totalDividends = totalDistributed;
   }
 
-  function getReportAccount(address account) public view returns (uint256 shares, uint256 dividendsEarned, uint256 dividendsClaimed) {
-    shares = balanceOf[account];
-    dividendsEarned = getAccumulated(account);
-    dividendsClaimed = withdrawnRewards[account];
+  function getReportAccount(address key) public view returns (address account, uint256 index, uint256 shares, uint256 dividendsEarned, uint256 dividendsClaimed) {
+    require(holderMap.inserted[key], "Value invalid");
+
+    return getReportAccountAt(holderMap.indexOf[key]);
   }
 
-  function getReportAccountAt(uint256 index) public view returns (address account, uint256 shares, uint256 dividendsEarned, uint256 dividendsClaimed) {
-    require(index < holdersMap.keys.length, "Value invalid");
+  function getReportAccountAt(uint256 indexOf) public view returns (address account, uint256 index, uint256 shares, uint256 dividendsEarned, uint256 dividendsClaimed) {
+    require(indexOf < holderMap.keys.length, "Value invalid");
 
-    account = holdersMap.keys[index];
+    index = indexOf;
+    account = holderMap.keys[indexOf];
     shares = balanceOf[account];
     dividendsEarned = getAccumulated(account);
     dividendsClaimed = withdrawnRewards[account];
   }
 
   function processClaims(uint256 gas) external {
-    uint256 keyCount = holdersMap.keys.length;
+    uint256 keyCount = holderMap.keys.length;
     if (keyCount == 0) return;
 
     uint256 pos = lastIndex;
@@ -98,8 +105,8 @@ contract OdysseyProject is RewardsTracker {
 
     while (gasUsed < gas && iterations < keyCount) {
       pos++;
-      if (pos >= holdersMap.keys.length) pos = 0;
-      address account = holdersMap.keys[pos];
+      if (pos >= holderMap.keys.length) pos = 0;
+      address account = holderMap.keys[pos];
       if (pushFunds(payable(account))) claims++;
       iterations++;
       uint256 newGasLeft = gasleft();
@@ -236,8 +243,11 @@ contract OdysseyProject is RewardsTracker {
     cfo2 = wallets[3];
   }
 
-  function setMinimumBalance(uint256 balance) external onlyOfficer {
+  function setMinimumBalance(uint256 amount) external onlyOfficer {
+    require(amount >= 1_000_000 && amount <= 10_000_000, "Value invalid");
+    uint256 balance = (amount * 1 ether);
     require(balance != minimumBalance, "Value unchanged");
+    require(minimumBalance > balance, "Value cannot increase");
 
     emit MinimumBalanceChanged(minimumBalance, balance);
     minimumBalance = balance;
@@ -270,7 +280,7 @@ contract OdysseyProject is RewardsTracker {
 
   function setHolder(address account, uint256 dollars) internal {
     putBalance(account, dollars);
-    holdersMap.set(account, dollars);
+    holderMapSet(account, dollars);
   }
 
   function pushFunds(address payable account) internal returns (bool) {
@@ -289,7 +299,44 @@ contract OdysseyProject is RewardsTracker {
     if (balanceOf[account] > 0 && odyssey.balanceOf(account) < minimumBalance) {
       putBalance(account, 0);
     } else if (balanceOf[account] == 0 && odyssey.balanceOf(account) >= minimumBalance) {
-      putBalance(account, holdersMap.get(account));
+      putBalance(account, holderMapGet(account));
     }
+  }
+
+  // HOLDERMAP FUNCTIONS
+
+  function holderMapGet(address key) internal view returns (uint) {
+    return holderMap.values[key];
+  }
+
+  function holderMapIndex(address key) internal view returns (int) {
+    if (!holderMap.inserted[key]) return -1;
+
+    return int(holderMap.indexOf[key]);
+  }
+
+  function holderMapSet(address key, uint val) internal {
+    if (holderMap.inserted[key]) {
+      holderMap.values[key] = val;
+    } else {
+      holderMap.inserted[key] = true;
+      holderMap.values[key] = val;
+      holderMap.indexOf[key] = holderMap.keys.length;
+      holderMap.keys.push(key);
+    }
+  }
+
+  function holderMapRemove(address key) internal {
+    if (!holderMap.inserted[key]) return;
+
+    delete holderMap.inserted[key];
+    delete holderMap.values[key];
+    uint index = holderMap.indexOf[key];
+    uint lastIdx = holderMap.keys.length - 1;
+    address lastKey = holderMap.keys[lastIdx];
+    holderMap.indexOf[lastKey] = index;
+    delete holderMap.indexOf[key];
+    holderMap.keys[index] = lastKey;
+    holderMap.keys.pop();
   }
 }

@@ -2,17 +2,22 @@
 pragma solidity ^0.8.11;
 
 import "./RewardsTracker.sol";
-import "./IterableMapping.sol";
 
 contract OdysseyRewards is RewardsTracker {
   using SafeMath for uint256;
   using SafeMathInt for int256;
-  using IterableMapping for IterableMapping.Map;
 
   string public name;
   string public symbol;
 
-  IterableMapping.Map private tokenHoldersMap;
+  struct HolderMap {
+    address[] keys;
+    mapping(address => uint) values;
+    mapping(address => uint) indexOf;
+    mapping(address => bool) inserted;
+  }
+
+  HolderMap private holderMap;
   uint256 public lastIndex = 0;
 
   struct Row { // PACKED MAX 8 VARS @ 32
@@ -28,7 +33,7 @@ contract OdysseyRewards is RewardsTracker {
 
   mapping (address => Row) public holder;
 
-  uint256 public minimumBalance = 15_000_000 ether; // must hold 10,000,000+ tokens
+  uint256 public minimumBalance = 15_000_000 ether; // must hold 15,000,000+ tokens
   uint256 public waitingPeriod = 6 hours;
   bool public isStakingOn = false;
   uint256 public totalTracked = 0;
@@ -46,11 +51,11 @@ contract OdysseyRewards is RewardsTracker {
   }
 
   function getHolderCount() external view returns(uint256) {
-    return tokenHoldersMap.keys.length;
+    return holderMap.keys.length;
   }
 
   function getReport() external view returns (uint256 holderCount, bool stakingOn, uint256 totalTokensTracked, uint256 totalTokensStaked, uint256 totalRewardsPaid, uint256 requiredBalance, uint256 waitPeriodSeconds) {
-    holderCount = tokenHoldersMap.keys.length;
+    holderCount = holderMap.keys.length;
     stakingOn = isStakingOn;
     totalTokensTracked = totalTracked;
     totalTokensStaked = totalBalance;
@@ -59,9 +64,10 @@ contract OdysseyRewards is RewardsTracker {
     waitPeriodSeconds = waitingPeriod;
   }
 
-  function getReportAccount(address account) external view returns (bool excluded, uint256 indexOf, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours) {
+  function getReportAccount(address key) public view returns (address account, int index, bool excluded, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours) {
+    account = key;
     excluded = (holder[account].excluded > 0);
-    indexOf = excluded ? 0 : tokenHoldersMap.getIndexOfKey(account).toUint256Safe();
+    index = excluded ? -1 : holderMapIndex(account);
     tokens = excluded ? 0 : unstakedBalanceOf(account);
     stakedPercent = excluded ? 0 : holder[account].percent;
     stakedTokens = excluded ? 0 : balanceOf[account];
@@ -70,8 +76,14 @@ contract OdysseyRewards is RewardsTracker {
     claimHours = excluded ? 0 : ageInHours(holder[account].claimed);
   }
 
+  function getReportAccountAt(uint256 indexOf) public view returns (address account, int index, bool excluded, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours) {
+    require(indexOf < holderMap.keys.length, "Value invalid");
+
+    return getReportAccount(holderMap.keys[indexOf]);
+  }
+
   function processClaims(uint256 gas) external onlyOwner {
-    uint256 numberOfTokenHolders = tokenHoldersMap.keys.length;
+    uint256 numberOfTokenHolders = holderMap.keys.length;
     if (numberOfTokenHolders == 0) return;
 
     uint256 pos = lastIndex;
@@ -84,8 +96,8 @@ contract OdysseyRewards is RewardsTracker {
 
     while (gasUsed < gas && iterations < numberOfTokenHolders) {
       pos++;
-      if (pos >= tokenHoldersMap.keys.length) pos = 0;
-      address account = tokenHoldersMap.keys[pos];
+      if (pos >= holderMap.keys.length) pos = 0;
+      address account = holderMap.keys[pos];
       updatedWeightedBalance(account);
       if (worthy && pushFunds(payable(account))) claims++;
       iterations++;
@@ -104,7 +116,7 @@ contract OdysseyRewards is RewardsTracker {
 
     holder[account].excluded = stamp();
     putBalance(account, 0);
-    tokenHoldersMap.remove(account);
+    holderMapRemove(account);
     emit ExcludedChanged(account, true);
   }
 
@@ -115,7 +127,7 @@ contract OdysseyRewards is RewardsTracker {
     holder[account].excluded = 0;
 
     if (balance > 0) {
-      tokenHoldersMap.set(account, balance);
+      holderMapSet(account, balance);
       putWeighted(account);
     }
     emit ExcludedChanged(account, false);
@@ -134,10 +146,6 @@ contract OdysseyRewards is RewardsTracker {
 
     emit WaitingPeriodChanged(waitingPeriod, inSeconds);
     waitingPeriod = inSeconds;
-  }
-
-  function unstakedBalanceOf(address account) public view returns(uint256){
-    return tokenHoldersMap.get(account);
   }
 
   function setStaking(bool setting) external onlyOwner {
@@ -162,8 +170,8 @@ contract OdysseyRewards is RewardsTracker {
   }
 
   function withdrawFunds(address payable account) public override onlyOwner { // EMITS EVENT
-    require(canClaim(holder[account].claimed), "Wait time active");
     require(getPending(account) > 0, "No funds");
+    require(canClaim(holder[account].claimed), "Wait time active");
 
     updatedWeightedBalance(account);
 
@@ -195,7 +203,7 @@ contract OdysseyRewards is RewardsTracker {
     if (newBalance < minimumBalance) { // BELOW MIN DOES NOT QUALIFY
       totalTracked -= unstakedBalanceOf(account);
       putBalance(account, 0);
-      tokenHoldersMap.remove(account); // REMOVE FROM ARRAY TO THIN STORAGE
+      holderMapRemove(account); // REMOVE FROM ARRAY TO THIN STORAGE
       return;
     }
 
@@ -205,7 +213,7 @@ contract OdysseyRewards is RewardsTracker {
       totalTracked -= unstakedBalanceOf(account).sub(newBalance);
     }
 
-    tokenHoldersMap.set(account, newBalance);
+    holderMapSet(account, newBalance);
     putWeighted(account);
 
     if (getPending(account) <= 0) return; // NOTHING PENDING WE ARE DONE HERE
@@ -249,5 +257,42 @@ contract OdysseyRewards is RewardsTracker {
   function updatedWeightedBalance(address account) internal {
     if (holder[account].percent==stakePercent(account)) return; // NO CHANGE
     putWeighted(account); // REWEIGHT TOKENS
+  }
+
+  // HOLDERMAP FUNCTIONS
+
+  function unstakedBalanceOf(address key) internal view returns (uint) {
+    return holderMap.values[key];
+  }
+
+  function holderMapIndex(address key) internal view returns (int) {
+    if (!holderMap.inserted[key]) return -1;
+
+    return int(holderMap.indexOf[key]);
+  }
+
+  function holderMapSet(address key, uint val) internal {
+    if (holderMap.inserted[key]) {
+      holderMap.values[key] = val;
+    } else {
+      holderMap.inserted[key] = true;
+      holderMap.values[key] = val;
+      holderMap.indexOf[key] = holderMap.keys.length;
+      holderMap.keys.push(key);
+    }
+  }
+
+  function holderMapRemove(address key) internal {
+    if (!holderMap.inserted[key]) return;
+
+    delete holderMap.inserted[key];
+    delete holderMap.values[key];
+    uint index = holderMap.indexOf[key];
+    uint lastIdx = holderMap.keys.length - 1;
+    address lastKey = holderMap.keys[lastIdx];
+    holderMap.indexOf[lastKey] = index;
+    delete holderMap.indexOf[key];
+    holderMap.keys[index] = lastKey;
+    holderMap.keys.pop();
   }
 }

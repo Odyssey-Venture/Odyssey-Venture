@@ -123,7 +123,7 @@ contract Odyssey is ERC20, Ownable {
   }
 
   function setGasLimit(uint256 gas) external onlyOwner {
-    require(gas >= 250_000 && gas <= 500_000, "Value invalid");
+    require(gas >= 250_000 && gas <= 750_000, "Value invalid");
     require(gas != gasLimit, "Value unchanged");
     emit GasLimitChanged(gasLimit, gas);
     gasLimit = gas;
@@ -164,8 +164,12 @@ contract Odyssey is ERC20, Ownable {
     return odysseyRewards.getReport();
   }
 
-  function getRewardsReportAccount(address account) external view returns (bool excluded, uint256 indexOf, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours) {
-    return odysseyRewards.getReportAccount(account);
+  function getRewardsReportAccount(address key) external view returns (address account, int index, bool excluded, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours) {
+    return odysseyRewards.getReportAccount(key);
+  }
+
+  function getRewardsReportAccountAt(uint256 indexOf) external view returns (address account, int index, bool excluded, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours) {
+    return odysseyRewards.getReportAccountAt(indexOf);
   }
 
   function processRewardsClaims() external onlyOwner {
