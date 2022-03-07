@@ -10,7 +10,7 @@ contract OdysseyRewards is RewardsTracker {
   string public name;
   string public symbol;
 
-  struct Record {
+  struct Holder {
     uint256 index;
     uint256 tokens;
     uint32 added;
@@ -18,14 +18,13 @@ contract OdysseyRewards is RewardsTracker {
     uint32 claimed;
     uint32 excluded;
     uint32 sold;
-    uint32 staked;
     uint32 percent;
   }
 
-  uint256 public records = 0;
-  uint256 public currentRecord = 0;
+  uint256 public holders = 0;
+  uint256 public currentHolder = 0;
   mapping (uint256 => address) public holderAt;
-  mapping (address => Record) public holder;
+  mapping (address => Holder) public holder;
 
   uint256 public minimumBalance = 15_000_000 ether; // must hold 15,000,000+ tokens
   uint256 public waitingPeriod = 6 hours;
@@ -45,7 +44,7 @@ contract OdysseyRewards is RewardsTracker {
   }
 
   function getReport() external view returns (uint256 holderCount, bool stakingOn, uint256 totalTokensTracked, uint256 totalTokensStaked, uint256 totalRewardsPaid, uint256 requiredBalance, uint256 waitPeriodSeconds) {
-    holderCount = records;
+    holderCount = holders;
     stakingOn = isStakingOn;
     totalTokensTracked = totalTracked;
     totalTokensStaked = totalBalance;
@@ -67,13 +66,13 @@ contract OdysseyRewards is RewardsTracker {
   }
 
   function getReportAccountAt(uint256 indexOf) public view returns (address account, uint256 index, bool excluded, uint256 tokens, uint256 stakedPercent, uint256 stakedTokens, uint256 rewardsEarned, uint256 rewardsClaimed, uint256 claimHours) {
-    require(indexOf > 0 && indexOf <= records, "Value invalid");
+    require(indexOf > 0 && indexOf <= holders, "Value invalid");
 
     return getReportAccount(holderAt[indexOf]);
   }
 
   function processClaims(uint256 gas) external onlyOwner {
-    if (records==0) return;
+    if (holders==0) return;
 
     uint256 gasUsed = 0;
     uint256 gasLeft = gasleft();
@@ -82,9 +81,9 @@ contract OdysseyRewards is RewardsTracker {
 
     bool worthy = (address(this).balance > (1 ether / 100)); // ARE THERE ENOUGH FUNDS TO WARRANT ACTION
 
-    while (gasUsed < gas && iterations < records) {
-      currentRecord = (currentRecord % records) + 1;
-      address account = holderAt[currentRecord];
+    while (gasUsed < gas && iterations < holders) {
+      currentHolder = (currentHolder % holders) + 1;
+      address account = holderAt[currentHolder];
       updatedWeightedBalance(account);
       if (worthy && pushFunds(payable(account))) claims++;
       iterations++;
@@ -93,7 +92,7 @@ contract OdysseyRewards is RewardsTracker {
       gasLeft = newGasLeft;
     }
 
-    emit ClaimsProcessed(iterations, claims, currentRecord, gasUsed);
+    emit ClaimsProcessed(iterations, claims, currentHolder, gasUsed);
   }
 
   function setExcludedAddress(address account) external onlyOwner {
@@ -159,24 +158,18 @@ contract OdysseyRewards is RewardsTracker {
     require(canClaim(holder[account].claimed), "Wait time active");
 
     updatedWeightedBalance(account);
-
     holder[account].claimed = stamp();
-
     super.withdrawFunds(account);
   }
 
   // PRIVATE
-
-  function ageInDays(uint32 stamped) private view returns (uint32) {
-    return ageInHours(stamped) / 24;
-  }
 
   function ageInHours(uint32 stamped) private view returns (uint32) {
     return stamped==0 ? 0 : (stamp() - stamped) / 1 hours;
   }
 
   function ageInWeeks(uint32 stamped) private view returns (uint32) {
-    return ageInDays(stamped) / 7;
+    return ageInHours(stamped) / 24 / 7;
   }
 
   function canClaim(uint48 lastClaimTime) private view returns (bool) {
@@ -184,28 +177,24 @@ contract OdysseyRewards is RewardsTracker {
     return block.timestamp.sub(lastClaimTime) >= waitingPeriod;
   }
 
-  function holderGetAt(uint256 index) view public returns(Record memory) {
-    return holder[holderAt[index]];
-  }
-
-  function holderSet(address key, uint256 val) public {
+  function holderSet(address key, uint256 val) private {
     if (holder[key].index==0) {
-      records++;
-      holderAt[records] = key;
-      holder[key].index = records;
+      holders++;
+      holderAt[holders] = key;
+      holder[key].index = holders;
     }
     holder[key].tokens = val;
   }
 
-  function holderRemove(address key) public {
+  function holderRemove(address key) private {
     if (holder[key].index==0) return;
 
     // COPY LAST ROW INTO SLOT BEING DELETED
-    holder[holderAt[records]].index = holder[key].index;
-    holderAt[holder[key].index] = holderAt[records];
+    holder[holderAt[holders]].index = holder[key].index;
+    holderAt[holder[key].index] = holderAt[holders];
 
-    delete holderAt[records];
-    records--;
+    delete holderAt[holders];
+    holders--;
     holder[key].index = 0;
   }
 

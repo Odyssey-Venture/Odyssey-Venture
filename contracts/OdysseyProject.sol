@@ -8,15 +8,15 @@ contract OdysseyProject is RewardsTracker {
   using SafeMath for uint256;
   using SafeMathInt for int256;
 
-  struct Record {
+  struct Holder {
     uint256 index;
     uint256 share;
   }
 
-  uint256 public records = 0;
-  uint256 public currentRecord = 0;
+  uint256 public holders = 0;
+  uint256 public currentHolder = 0;
   mapping (uint256 => address) public holderAt;
-  mapping (address => Record) public holder;
+  mapping (address => Holder) public holder;
 
   Odyssey public odyssey;
 
@@ -71,7 +71,7 @@ contract OdysseyProject is RewardsTracker {
   }
 
   function getReport() public view returns (uint256 holderCount, uint256 totalDollars, uint256 totalDividends) {
-    holderCount = records;
+    holderCount = holders;
     totalDollars = totalBalance;
     totalDividends = totalDistributed;
   }
@@ -85,29 +85,29 @@ contract OdysseyProject is RewardsTracker {
   }
 
   function getReportAccountAt(uint256 indexOf) public view returns (address account, uint256 index, uint256 shares, uint256 dividendsEarned, uint256 dividendsClaimed) {
-    require(indexOf > 0 && indexOf <= records, "Value invalid");
+    require(indexOf > 0 && indexOf <= holders, "Value invalid");
 
     return getReportAccount(holderAt[indexOf]);
   }
 
   function processClaims(uint256 gas) external {
-    if (records==0) return;
+    if (holders==0) return;
 
     uint256 gasUsed = 0;
     uint256 gasLeft = gasleft();
     uint256 iterations = 0;
     uint256 claims = 0;
 
-    while (gasUsed < gas && iterations <= records) {
-      currentRecord = (currentRecord % records) + 1;
-      if (pushFunds(payable(holderAt[currentRecord]))) claims++;
+    while (gasUsed < gas && iterations <= holders) {
+      currentHolder = (currentHolder % holders) + 1;
+      if (pushFunds(payable(holderAt[currentHolder]))) claims++;
       iterations++;
       uint256 newGasLeft = gasleft();
       if (gasLeft > newGasLeft) gasUsed = gasUsed.add(gasLeft.sub(newGasLeft));
       gasLeft = newGasLeft;
     }
 
-    emit ClaimsProcessed(iterations, claims, currentRecord, gasUsed);
+    emit ClaimsProcessed(iterations, claims, currentHolder, gasUsed);
   }
 
   function replaceContract(address to) external onlyOfficer {
@@ -269,15 +269,11 @@ contract OdysseyProject is RewardsTracker {
     super.distributeFunds(share);
   }
 
-  function holderGetAt(uint256 index) view internal returns(Record memory) {
-    return holder[holderAt[index]];
-  }
-
   function holderSet(address key, uint256 share) internal {
     if (holder[key].index==0) {
-      records++;
-      holderAt[records] = key;
-      holder[key].index = records;
+      holders++;
+      holderAt[holders] = key;
+      holder[key].index = holders;
     }
     holder[key].share = share;
   }

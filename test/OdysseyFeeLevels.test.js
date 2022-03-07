@@ -114,7 +114,7 @@ contract('Odyssey', function (accounts) {
         }
       }
 
-      let cnt = await tracker.records();
+      let cnt = await tracker.holders();
       let sum = 0;
       for (let idx=1;idx<=cnt;idx++) {
         let report = await contract.getRewardsReportAccountAt(idx);

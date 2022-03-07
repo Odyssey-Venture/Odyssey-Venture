@@ -200,7 +200,7 @@ contract('OdysseyProject', function (accounts) {
 
     transaction = await contract.processClaims(800_000);
 
-    let cnt = await contract.records();
+    let cnt = await contract.holders();
     let sum = 0;
     for (let idx=1;idx<=cnt;idx++) {
       report = await contract.getReportAccountAt(idx);

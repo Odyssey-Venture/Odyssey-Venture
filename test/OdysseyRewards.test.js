@@ -180,19 +180,19 @@ contract('OdysseyRewards', function (accounts) {
 
   it('tracks accounts that are over minimum balance', async function () {
     await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
-    assert.equal(await contract.records(), 1);
+    assert.equal(await contract.holders(), 1);
   });
 
   it('does not track accounts under minimum balance', async function () {
     await contract.trackBuy(holder1, toWei(1_000), { from: owner });
-    assert.equal(await contract.records(), 0);
+    assert.equal(await contract.holders(), 0);
   });
 
   it('stops tracking accounts that fall under minimum balance', async function () {
     await contract.trackBuy(holder1, toWei(10_000_000), { from: owner });
-    assert.equal(await contract.records(), 1);
+    assert.equal(await contract.holders(), 1);
     await contract.trackSell(holder1, toWei(1_000), { from: owner });
-    assert.equal(await contract.records(), 0);
+    assert.equal(await contract.holders(), 0);
   });
 
   it('sums totalsTracked and matches rewards balance', async function () {
@@ -307,9 +307,9 @@ contract('OdysseyRewards', function (accounts) {
     await contract.trackBuy(holder5, toWei(22), { from: owner });
     await contract.trackBuy(holder6, toWei(17), { from: owner });
 
-    assert.equal(await contract.records(), 6);
+    assert.equal(await contract.holders(), 6);
     assert.equal(await contract.totalBalance(), toWei(100));
-    assert.equal(await contract.currentRecord(), 0);
+    assert.equal(await contract.currentHolder(), 0);
 
     let args;
     let before = [
