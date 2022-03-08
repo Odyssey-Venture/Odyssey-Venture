@@ -217,7 +217,8 @@ as the canonical source of the truth.
 ### 1. Flatten OdysseyProject.sol and compile
 
 Using Remix, flatten and save the OdysseyProject.sol file. This will contain the
-sources of all 3 tokens - Odyssey, OdysseyRewards and OdysseyProject.
+sources of all 3 tokens - Odyssey, OdysseyRewards and OdysseyProject. Be sure to
+set the IUniswapV2Router02 to the correct Pancakeswap address for the network.
 Use the following settings on Remix to compile:
 
 * compiler: `v0.8.11+commit.d7f03943`
@@ -228,12 +229,8 @@ Use the following settings on Remix to compile:
 ### 2. Deploy OdysseyProject token.
 
 From the deploy tab, select `OdysseyProject - OdysseyProject_flat.sol` from the
-contract droplist and click deploy. There will be 2 deploys happening here - the
-first is the IterableMapping library and the second will be the OdysseyProject
-token. You will need to make note of the address of the IterableMapping library
-so the source code can be verified later. Lookup the transaction of the library
-deploy on bscscan `https://testnet.bscscan.com/tx/_tx_address_` to find the address
-the library deployed to.
+contract droplist and click deploy. Approve the transactions on metamask and after
+a few seconds you should see the new contract under `Deployed Contracts`.
 
 ### 3. Verify OdysseyProject token on bscscan.
 
@@ -248,8 +245,6 @@ Agree to terms and continue to next page. Enter the following settings:
 
 * optimization: `yes`
 * solidity contract code: copy/paste entire `OdysseyProject_flat.sol` into text area
-* contract library address / Library_1 Name: `IterableMapping`
-* contract library address / Library_1 Contract Address: _iterablemapping_address_ from previous step
 * misc settings / runs: `200`
 * misc settings / evmVersion: `spuriousDragon`
 
@@ -258,13 +253,13 @@ Prove you are not a robot and click `Verify and Publish`
 ### 4. Deploy Odyssey token.
 
 From the deploy tab, select `Odyssey - OdysseyProject_flat.sol` from the contract
-droplist and click deploy. Once again there will be two deploys happening and you
-will need to follow the same steps to save the iterable mapping library address so
-the source code can be verified later.
+droplist and click deploy. Approve the transactions on metamask and after
+a few seconds you should see the new contract under `Deployed Contracts`.
 
 ### 5. Verify Odyssey token on bscscan.
 
-Repeat step 3 but this time verifying the Odyssey token.
+Repeat step 3 but this time verifying the Odyssey token using the same `OdysseyProject_flat.sol`
+source file.
 
 ### 6. Link Odyssey and OdysseyProject tokens.
 
@@ -297,7 +292,13 @@ The amounts supplied should be dollar amounts with no decimals.
 ### 9. Supply initial liquidity to Odyssey token
 
 Send the contract BNB and tokens to be paired as initial liquidty in PanCakeSwap. The
-LP tokens generated will be sent to the token owner to be locked.
+LP tokens generated will be sent to the owner after creation to be locked.
+
+From metamask, send initial liquidity BNB to the contract.
+
+From either remix or bscscan contract tab, run the following commands:
+
+  * Odyssey: `transfer(to: _odyssey_address_, amount: _half_final_supply_)`
 
 ### 10. Open contract to public
 
@@ -306,3 +307,11 @@ Run the following command to open the contract to public trading.
 * Odyssey: `openToPublic()`
 
 This action can only be done once ever and cannot be undone. Choose wisely.
+
+### 11. Verify OdysseyRewards contract
+
+Repeat step 3 but this time verifying the OdysseyRewards contract using the same `OdysseyProject_flat.sol`
+source file. You will need to provide the constructor arguments `("OdysseyRewards", "ODSYRV1")` in
+ABI-encoded format. The encoded data is provided below:
+
+* Constructor Arguments ABI-encoded: `00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000e4f6479737365795265776172647300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000074f44535952563100000000000000000000000000000000000000000000000000`
