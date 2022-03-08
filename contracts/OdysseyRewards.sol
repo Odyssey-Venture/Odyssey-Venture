@@ -79,9 +79,11 @@ contract OdysseyRewards is RewardsTracker {
     uint256 iterations = 0;
     uint256 claims = 0;
 
-    bool worthy = (address(this).balance > (1 ether / 100)); // ARE THERE ENOUGH FUNDS TO WARRANT ACTION
-
     while (gasUsed < gas && iterations < holders) {
+      bool worthy = (address(this).balance > (1 ether / 10)); // ENOUGH FUNDS TO WARRANT PUSHING?
+      // IF WORTHY 1 LOOP COST MAX ~65_000 GAS, UNWORTHY MAX ~8_500 GAS
+      if (gasLeft < (worthy ? 65_000 : 8_500)) break; // EXIT IF NOT ENOUGH TO PROCESS THIS ITERATION TO AVOID OOG ERROR
+
       currentHolder = (currentHolder % holders) + 1;
       address account = holderAt[currentHolder];
       updatedWeightedBalance(account);

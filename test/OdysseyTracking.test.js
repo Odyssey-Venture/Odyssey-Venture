@@ -40,9 +40,6 @@ contract('Odyssey', function (accounts) {
   beforeEach('setup contract for each test', async function() {
     contract = await Odyssey.new();
     uniswapV2Pair = await contract.uniswapV2Pair();
-    tracker = await OdysseyRewards.new("OdysseyRewards", "ODSYRV1");
-    await tracker.transferOwnership(contract.address, { from: owner });
-    await contract.setRewardsTracker(tracker.address);
   });
 
   it('has publically viewable tracker', async function() {
@@ -56,6 +53,7 @@ contract('Odyssey', function (accounts) {
   });
 
   it('allows owner to update tracker', async function() {
+    tracker = await OdysseyRewards.at(await contract.odysseyRewards());
     let newTracker = await OdysseyRewards.new('OdysseyRewards', 'ODSYRV2', {from: owner });
     await newTracker.transferOwnership(contract.address, { from: owner });
     transaction = await contract.setRewardsTracker(newTracker.address);
@@ -86,6 +84,7 @@ contract('Odyssey', function (accounts) {
   });
 
   it('allows owner to exclude account from earning rewards', async function () {
+    tracker = await OdysseyRewards.at(await contract.odysseyRewards());
     transaction = await contract.setRewardsExcludedAddress(holder1, true, { from: owner });
     expectEvent.inTransaction(transaction.tx, tracker, 'ExcludedChanged', { account: holder1, excluded: true });
     assert.isTrue((await contract.getRewardsReportAccount(holder1)).excluded);
@@ -98,6 +97,7 @@ contract('Odyssey', function (accounts) {
   });
 
   it('allows owner to include account for earning rewards', async function () {
+    tracker = await OdysseyRewards.at(await contract.odysseyRewards());
     await contract.setRewardsExcludedAddress(holder1, true, { from: owner });
     transaction = await contract.setRewardsExcludedAddress(holder1, false, { from: owner });
     expectEvent.inTransaction(transaction.tx, tracker, 'ExcludedChanged', { account: holder1, excluded: false });
@@ -115,6 +115,7 @@ contract('Odyssey', function (accounts) {
   });
 
   it('allows owner to set minimum balance', async function () {
+    tracker = await OdysseyRewards.at(await contract.odysseyRewards());
     transaction = await contract.setRewardsMinimumBalance(defaults.minTrackerBalance+1, { from: owner });
     expectEvent.inTransaction(transaction.tx, tracker, 'MinimumBalanceChanged', { from: toWei(defaults.maxTrackerBalance), to: toWei(defaults.minTrackerBalance+1) });
   });
@@ -134,11 +135,13 @@ contract('Odyssey', function (accounts) {
   });
 
   it('allows owner to set waiting period', async function () {
+    tracker = await OdysseyRewards.at(await contract.odysseyRewards());
     transaction = await contract.setRewardsWaitingPeriod(two_hours, { from: owner });
     expectEvent.inTransaction(transaction.tx, tracker, 'WaitingPeriodChanged', { from: six_hours.toString(), to: two_hours.toString() });
   });
 
   it('allows holder withdraw earned rewards', async function () {
+    tracker = await OdysseyRewards.at(await contract.odysseyRewards());
     await contract.transfer(holder1, toWei(defaults.maxTrackerBalance), { from: owner });
     await tracker.send(toWei(1), { from: holder1 });
     transaction = await contract.withdrawRewards({ from: holder1 });
@@ -146,6 +149,7 @@ contract('Odyssey', function (accounts) {
   });
 
   it('allows bulk processing of earned reward withdraws', async function () {
+    tracker = await OdysseyRewards.at(await contract.odysseyRewards());
     await contract.transfer(holder1, toWei(defaults.maxTrackerBalance), { from: owner });
     await contract.transfer(holder2, toWei(defaults.maxTrackerBalance), { from: owner });
     await tracker.send(toWei(1), { from: holder1 });

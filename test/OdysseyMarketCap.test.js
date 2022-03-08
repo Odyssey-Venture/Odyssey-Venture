@@ -80,9 +80,6 @@ contract('Odyssey', function (accounts) {
 
   beforeEach('setup contract for each test', async function() {
     contract = await Odyssey.new();
-    tracker = await OdysseyRewards.new("OdysseyRewards", "ODSYRV1");
-    await tracker.transferOwnership(contract.address, { from: owner });
-    await contract.setRewardsTracker(tracker.address);
     uniswapV2Pair = await contract.uniswapV2Pair();
     defaults.swapThreshold = await contract.swapThreshold();
     addresses.contract = contract.address;

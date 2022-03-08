@@ -17,9 +17,7 @@ contract('Odyssey', function (accounts) {
   beforeEach('setup contract for each test', async function() {
     contract = await Odyssey.new();
     uniswapV2Pair = await contract.uniswapV2Pair();
-    tracker = await OdysseyRewards.new("OdysseyRewards", "ODSYRV1");
-    await tracker.transferOwnership(contract.address, { from: owner });
-    await contract.setRewardsTracker(tracker.address);
+    tracker = await OdysseyRewards.at(await contract.odysseyRewards());
   });
 
   it('allows owner to update tracker', async function() {
@@ -30,5 +28,12 @@ contract('Odyssey', function (accounts) {
     assert.equal(await contract.odysseyRewards(), newTracker.address);
     tracker = await OdysseyRewards.at(await contract.odysseyRewards());
     assert.equal(await tracker.symbol(), 'ODSYRV2');
+  });
+
+  it('transfers old tracker back to owner when updated', async function() {
+    let newTracker = await OdysseyRewards.new('OdysseyRewards', 'ODSYRV2', {from: owner });
+    await newTracker.transferOwnership(contract.address, { from: owner });
+    await contract.setRewardsTracker(newTracker.address);
+    assert.equal(await tracker.owner(), owner);
   });
 });

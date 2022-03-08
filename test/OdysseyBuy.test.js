@@ -79,9 +79,6 @@ contract('Odyssey', function (accounts) {
 
   beforeEach('setup contract for each test', async function() {
     contract = await Odyssey.new();
-    tracker = await OdysseyRewards.new("OdysseyRewards", "ODSYRV1");
-    await tracker.transferOwnership(contract.address, { from: owner });
-    await contract.setRewardsTracker(tracker.address);
     uniswapV2Router = await IUniswapV2Router02.at(addresses.router);
     uniswapV2Pair = await IUniswapV2Pair.at(await contract.uniswapV2Pair());
     p0 = await uniswapV2Pair.token0();

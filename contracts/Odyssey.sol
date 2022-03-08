@@ -153,6 +153,7 @@ contract Odyssey is ERC20, Ownable {
 
     emit RewardsTrackerChanged(address(odysseyRewards), newAddress);
 
+    odysseyRewards.transferOwnership(owner());
     odysseyRewards = newTracker;
     setDefaultRewardsExclusions();
   }
