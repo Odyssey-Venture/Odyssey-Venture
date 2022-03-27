@@ -41,6 +41,17 @@ contract('OdysseyProject', function (accounts) {
     await expectRevert(contract.setOfficers([holder1, holder2, holder3]), '4 Officers required');
   });
 
+  it('requires 4 Officer wallets to be valid', async function () {
+    await expectRevert(contract.setOfficers([ZERO, holder2, holder3, holder4]), 'Value invalid');
+    await expectRevert(contract.setOfficers([holder1, ZERO, holder3, holder4]), 'Value invalid');
+    await expectRevert(contract.setOfficers([holder1, holder2, ZERO, holder4]), 'Value invalid');
+    await expectRevert(contract.setOfficers([holder1, holder2, holder3, ZERO]), 'Value invalid');
+  });
+
+  it('requires 4 Officer wallets to be unique', async function () {
+    await expectRevert(contract.setOfficers([holder1, holder2, holder3, holder1]), 'Value invalid');
+  });
+
   it('allows Officer wallets to initialize once', async function () {
     await contract.setOfficers([holder1, holder2, holder3, holder4]);
     await expectRevert(contract.setOfficers([holder1, holder2, holder3, holder4]), 'Officers already set');
@@ -112,6 +123,17 @@ contract('OdysseyProject', function (accounts) {
     assert.equal((await contract.voteOfficer(holder2)).from, ZERO);
     assert.equal((await contract.voteOfficer(holder3)).from, ZERO);
     assert.equal((await contract.voteOfficer(holder5)).from, ZERO);
+  });
+
+  it('prevents an outgoing officer from voting', async function () {
+    await contract.setOfficers([holder1, holder2, holder3, holder4]);
+    await contract.replaceOfficer(holder4, holder5, { from: holder1 }); // VOTE AGAINST holder4
+
+    await expectRevert(contract.replaceOfficer(holder1, holder5, { from: holder4 }), 'Outgoing Officer cannot vote.');
+
+    await contract.replaceOfficer(holder4, holder5, { from: holder2 });
+    await contract.replaceOfficer(holder4, holder5, { from: holder3 });
+    assert.equal(await contract.cfo2(), holder5);
   });
 
   it('replaceContract when 4 of 4 vote', async function () {

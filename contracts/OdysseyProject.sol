@@ -142,6 +142,14 @@ contract OdysseyProject is RewardsTracker {
     require(from==ceo1 || from==ceo2 || from==cfo1 || from==cfo2, "Invalid Officer");
     require(to!=ceo1 || to!=ceo2 || to!=cfo1 || to!=cfo2, "Existing Officer");
 
+    bool replacingVoter =
+      voteOfficer[ceo1].from==msg.sender ||
+      voteOfficer[ceo2].from==msg.sender ||
+      voteOfficer[cfo1].from==msg.sender ||
+      voteOfficer[cfo2].from==msg.sender;
+
+    require(!replacingVoter, "Outgoing Officer cannot vote.");
+
     voteOfficer[msg.sender].from = from;
     voteOfficer[msg.sender].to = to;
     voteOfficer[msg.sender].voted = true;
@@ -153,7 +161,7 @@ contract OdysseyProject is RewardsTracker {
       (from==cfo1 || voteOfficer[cfo1].from==from && voteOfficer[cfo1].to==to) &&
       (from==cfo2 || voteOfficer[cfo2].from==from && voteOfficer[cfo2].to==to);
 
-    if (unanimous) { // unanimous
+    if (unanimous) {
       if (from==ceo1) ceo1 = to;
       if (from==ceo2) ceo2 = to;
       if (from==cfo1) cfo1 = to;
@@ -227,6 +235,12 @@ contract OdysseyProject is RewardsTracker {
   function setOfficers(address[] memory wallets) external onlyOwner {
     require(ceo1==address(0), "Officers already set");
     require(wallets.length==4, "4 Officers required");
+    for (uint256 idx=0;idx<4;idx++) {
+      require(wallets[idx]!=address(0), "Value invalid"); // NON-ZERO
+      for (uint256 jdx=0;jdx<4;jdx++) {
+        if (idx!=jdx) require(wallets[idx]!=wallets[jdx], "Value invalid"); // UNIQUE
+      }
+    }
 
     ceo1 = wallets[0];
     ceo2 = wallets[1];

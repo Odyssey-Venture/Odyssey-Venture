@@ -95,6 +95,7 @@ contract Odyssey is ERC20, Ownable {
   }
 
   function openToPublic() external onlyOwner { // NO GOING BACK
+    require(!isOpenToPublic, "Value unchanged");
     require(address(this).balance > 0, "Must have bnb to pair for launch");
     require(balanceOf(address(this)) > 0, "Must have tokens to pair for launch");
 
@@ -273,14 +274,13 @@ contract Odyssey is ERC20, Ownable {
     emit MarketCapCalculated(price, marketCap, tokens, swappedETH); // TESTING
 
     uint16 level = // MC IN BNB NOT USD
-      (marketCap <   4_000) ? 1 :
-      (marketCap <   8_000) ? 2 :
-      (marketCap <  16_000) ? 3 :
-      (marketCap <  32_000) ? 4 :
-      (marketCap <  64_000) ? 5 :
-      (marketCap < 128_000) ? 6 :
-      (marketCap < 256_000) ? 7 :
-      (marketCap < 512_000) ? 8 : 9;
+      (marketCap <   8_000) ? 1 :
+      (marketCap <  16_000) ? 2 :
+      (marketCap <  32_000) ? 3 :
+      (marketCap <  64_000) ? 4 :
+      (marketCap < 128_000) ? 5 :
+      (marketCap < 256_000) ? 6 :
+      (marketCap < 512_000) ? 7 : 8;
 
     if (feesChanged(level)) {
       setFeesByLevel(level);
@@ -320,8 +320,8 @@ contract Odyssey is ERC20, Ownable {
 
   function setFeesByLevel(uint16 level) private {
     swapThreshold = uint256((17-level)) * 1_000_000 ether;
-    feeLiquidity = (level<6) ? (6-level) : 0;
-    feeProject = (level<4) ? (4-level) : 0;
+    feeLiquidity = (level<5) ? (5-level) : 0;
+    feeProject = (level<5) ? (5-level) : 1;
     feeRewards = (13-level) - feeLiquidity - feeProject;
     feeToSell = feeRewards + feeProject + feeLiquidity;
   }

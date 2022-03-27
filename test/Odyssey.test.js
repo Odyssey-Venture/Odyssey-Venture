@@ -90,6 +90,14 @@ contract('Odyssey', function (accounts) {
     await expectRevert(contract.openToPublic({ from: owner }), 'Must have tokens to pair for launch');
   });
 
+  it('can only openToPublic once', async function() {
+    await contract.send(toWei(100), { from: holder3 });
+    await contract.transfer(contract.address, toWei(25_000_000_000), { from: owner });
+    await contract.openToPublic({ from: owner });
+    await contract.send(toWei(100), { from: holder3 });
+    await contract.transfer(contract.address, toWei(1_000), { from: owner });
+    await expectRevert(contract.openToPublic({ from: owner }), 'Value unchanged');
+  });
 
   it('has a threshold for swapping tokens to BSD', async function () {
     assert.equal(await contract.swapThreshold(), toWei(defaults.swapThreshold));
