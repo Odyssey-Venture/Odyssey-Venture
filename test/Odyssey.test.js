@@ -54,7 +54,6 @@ contract('Odyssey', function (accounts) {
     contract = await Odyssey.new();
     tracker = await OdysseyRewards.at(await contract.odysseyRewards());
     uniswapV2Pair = await contract.uniswapV2Pair();
-    // await contract.openToPublic();
   });
 
   it('initializes the correct values', async function () {
@@ -64,8 +63,6 @@ contract('Odyssey', function (accounts) {
   });
 
   it('allow owner to open contract to public', async function() {
-    await contract.send(toWei(100), { from: holder3 });
-    await contract.transfer(contract.address, toWei(25_000_000_000), { from: owner });
     await contract.openToPublic({ from: owner });
     assert.isTrue(await contract.isOpenToPublic());
   });
@@ -84,18 +81,8 @@ contract('Odyssey', function (accounts) {
     assert.isFalse(await contract.isOpenToPublic());
   });
 
-  it('contract must have bnb and tokens for initial liquidity', async function() {
-    await expectRevert(contract.openToPublic({ from: owner }), 'Must have bnb to pair for launch');
-    await contract.send(toWei(10), { from: holder3 });
-    await expectRevert(contract.openToPublic({ from: owner }), 'Must have tokens to pair for launch');
-  });
-
   it('can only openToPublic once', async function() {
-    await contract.send(toWei(100), { from: holder3 });
-    await contract.transfer(contract.address, toWei(25_000_000_000), { from: owner });
     await contract.openToPublic({ from: owner });
-    await contract.send(toWei(100), { from: holder3 });
-    await contract.transfer(contract.address, toWei(1_000), { from: owner });
     await expectRevert(contract.openToPublic({ from: owner }), 'Value unchanged');
   });
 

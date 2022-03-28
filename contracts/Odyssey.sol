@@ -96,13 +96,13 @@ contract Odyssey is ERC20, Ownable {
 
   function openToPublic() external onlyOwner { // NO GOING BACK
     require(!isOpenToPublic, "Value unchanged");
-    require(address(this).balance > 0, "Must have bnb to pair for launch");
-    require(balanceOf(address(this)) > 0, "Must have tokens to pair for launch");
+
+    if (address(this).balance > 0 && address(this).balance > 0) {
+      // INITIAL LIQUIDITY GOES TO OWNER TO LOCK
+      addLiquidity(balanceOf(address(this)), address(this).balance);
+    }
 
     isOpenToPublic = true;
-
-    // INITIAL LIQUIDITY GOES TO OWNER TO LOCK
-    addLiquidity(balanceOf(address(this)), address(this).balance);
 
     liquidityAddress = payable(address(this)); // GENERATED LIQUIDITY STAYS IN CONTRACT
     emit LiquidityAddressChanged(owner(), address(this));

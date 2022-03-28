@@ -104,7 +104,6 @@ contract('Odyssey', function (accounts) {
 
     console.log('Opening contract to public trading');
     transaction = await contract.openToPublic();
-    // expectEvent(transaction, 'LiquidityAddressChanged', { from: owner, to: addresses.dead });
     assert.equal(fromWei(await contract.balanceOf(addresses.contract)), 0);
     assert.equal(fromWei(await web3.eth.getBalance(addresses.contract)), 0);
 
