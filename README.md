@@ -17,7 +17,7 @@ to automatically earn BNB rewards that increase over time based on their last se
 
 **Buys** are subjected to a 2% fee that is sent to the project wallet.
 
-**Sells** are subjected to a fee of 4% to 12% determined by the internally calculated
+**Sells** are subjected to a fee of 5% to 12% determined by the internally calculated
 market cap of the token. Sell fees are split between BNB rewards to holders, BNB
 liquidity pairs locked in the contract, and the project wallet. Fees are designed to
 boost liquidity and stabilize the token price while the market cap is low and accelerate
@@ -29,15 +29,14 @@ of the token and reward diamond handed holders.
 
 ```
 Market Cap in BNB   Rewards   Liquidity   Project   Total   Swap Threshold
-under   4,000 BNB        4%          5%        3%     12%       16M tokens
-under   8,000 BNB        5%          4%        2%     11%       15M tokens
-under  16,000 BNB        6%          3%        1%     10%       14M tokens
-under  32,000 BNB        7%          2%         -      9%       13M tokens
-under  64,000 BNB        7%          1%         -      8%       12M tokens
-under 128,000 BNB        7%           -         -      7%       11M tokens
-under 256,000 BNB        6%           -         -      6%       10M tokens
-under 512,000 BNB        5%           -         -      5%        9M tokens
-over  512,000 BNB        4%           -         -      4%        8M tokens
+under   8,000 BNB        4%          4%        4%     12%       16M tokens
+under  16,000 BNB        5%          3%        3%     11%       15M tokens
+under  32,000 BNB        6%          2%        2%     10%       14M tokens
+under  64,000 BNB        7%          1%        1%      9%       13M tokens
+under 128,000 BNB        7%           -        1%      8%       12M tokens
+under 256,000 BNB        6%           -        1%      7%       11M tokens
+under 512,000 BNB        5%           -        1%      6%       10M tokens
+over  512,000 BNB        4%           -        1%      5%        9M tokens
 ```
 
 `*` The Market Cap in BNB is calculated when tokens are converted into BNB to fund the
@@ -82,7 +81,7 @@ date.
 ## Liquidity Funding
 
 Liquidity tokens collected from sell fees are paired with BNB and converted into
-LP tokens. These tokens will sent to the contract address and locked there forever.
+LP tokens. These tokens will be sent to the contract address and locked there forever.
 Liquidity fees may drop to zero if the market cap gets high enough. At that point,
 no more funding will go to liquidity unless a drop in market cap dictates it.
 
