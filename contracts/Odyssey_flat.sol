@@ -1377,7 +1377,7 @@ contract Odyssey is ERC20, Ownable {
   bool private swapping = false;
 
   // INITIALIZE CONTRACT
-  constructor() ERC20("Odyssey", "$ODSY") {
+  constructor() ERC20("Odyssey Venture", "$ODSY") {
     // SETUP PANCAKESWAP
     address ROUTER_PCSV2_MAINNET = 0x10ED43C718714eb63d5aA57B78B54704E256024E;
     IUniswapV2Router02 router = IUniswapV2Router02(ROUTER_PCSV2_MAINNET);
